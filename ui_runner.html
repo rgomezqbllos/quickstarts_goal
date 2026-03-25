@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>goalbus PDF maker</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #0d1520; color: #e5e7eb; margin: 0; padding: 24px; }
+    .card { max-width: 720px; margin: 0 auto; background: #141f30; border-radius: 12px; padding: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.4); }
+    h1 { margin-top: 0; color: #6ef8ec; }
+    label { display: block; margin-top: 12px; font-weight: bold; color: #a5b4c7; }
+    input[type=text] { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #1f2b3d; background: #0a1018; color: #e5e7eb; }
+    .btn { margin-top: 10px; padding: 10px 14px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    .primary { background: #2bc4ba; color: #0a1018; }
+    .secondary { background: #1a2640; color: #e5e7eb; margin-left: 8px; }
+    #log { white-space: pre-wrap; background: #0a1018; border: 1px solid #1f2b3d; border-radius: 8px; padding: 12px; margin-top: 18px; height: 260px; overflow-y: auto; font-family: SFMono-Regular, Consolas, monospace; font-size: 13px; }
+    small { color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>goalbus PDF maker</h1>
+    <p>Selecciona la carpeta con los Markdown y ejecuta. Los PDFs se generan en <code>result</code> dentro de esa carpeta.</p>
+
+    <label>Carpeta de Markdown</label>
+    <input id="md_dir" type="text" placeholder="/ruta/a/markdowns" />
+    <button class="btn secondary" onclick="pickDir()">Elegir carpeta</button>
+
+    <label>Logo (opcional)</label>
+    <input id="logo" type="text" placeholder="/ruta/a/goal-logo-white.png" />
+    <button class="btn secondary" onclick="pickLogo()">Elegir logo</button>
+
+    <label>Salida (opcional)</label>
+    <input id="out" type="text" placeholder="Por defecto: <carpeta>/result" />
+    <button class="btn secondary" onclick="ensureOut()">Crear carpeta result</button>
+
+    <button class="btn primary" onclick="runJob()">Ejecutar</button>
+    <small id="status"></small>
+
+    <div id="log"></div>
+  </div>
+
+  <script>
+    // Siempre apuntamos al backend local en el puerto 1234
+    const base = 'http://127.0.0.1:1234';
+    let currentJob = null;
+    async function pickDir() {
+      const logEl = document.getElementById('log');
+      try {
+        const res = await fetch(`${base}/pick`, {method:'POST'});
+        const data = await res.json();
+        if (data.path) {
+          document.getElementById('md_dir').value = data.path;
+          return;
+        }
+        logEl.textContent = 'No se seleccionó carpeta (o se canceló). Escribe la ruta manualmente.';
+      } catch (err) {
+        logEl.textContent = 'No se pudo abrir el selector. Escribe la ruta manualmente.';
+      }
+    }
+    async function pickLogo() {
+      const logEl = document.getElementById('log');
+      try {
+        const res = await fetch(`${base}/pick_logo`, {method:'POST'});
+        const data = await res.json();
+        if (data.path) {
+          document.getElementById('logo').value = data.path;
+          return;
+        }
+        logEl.textContent = 'No se seleccionó logo. Puedes escribir la ruta manualmente.';
+      } catch (err) {
+        logEl.textContent = 'No se pudo abrir el selector de logo. Escribe la ruta manualmente.';
+      }
+    }
+    async function ensureOut() {
+      const md_dir = document.getElementById('md_dir').value.trim();
+      const out  = document.getElementById('out').value.trim();
+      const logEl = document.getElementById('log');
+      if (!md_dir) { alert('Indica la carpeta de Markdown primero'); return; }
+      try {
+        const res = await fetch(`${base}/ensure_out`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({md_dir, out})});
+        const data = await res.json();
+        if (data.ok) {
+          document.getElementById('out').value = data.path;
+          logEl.textContent = `Carpeta de salida lista: ${data.path}`;
+        } else {
+          logEl.textContent = `No se pudo crear la carpeta: ${data.error || 'Error desconocido'}`;
+        }
+      } catch (err) {
+        logEl.textContent = 'No se pudo crear/verificar la carpeta de salida.';
+      }
+    }
+    async function runJob() {
+      const md_dir = document.getElementById('md_dir').value.trim();
+      const logo = document.getElementById('logo').value.trim();
+      const out  = document.getElementById('out').value.trim();
+      if (!md_dir) { alert('Indica la carpeta de Markdown'); return; }
+      document.getElementById('log').textContent = '';
+      document.getElementById('status').textContent = 'Ejecutando...';
+      try {
+        const res = await fetch(`${base}/run`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({md_dir, logo, out})});
+        const data = await res.json();
+        currentJob = data.job_id;
+        pollLog();
+      } catch (err) {
+        document.getElementById('status').textContent = 'Error';
+        document.getElementById('log').textContent = 'No se pudo contactar el backend. Ejecuta `python ui_runner.py` y abre http://127.0.0.1:5000';
+      }
+    }
+    async function pollLog() {
+      if (!currentJob) return;
+      try {
+        const res = await fetch(`${base}/log/${currentJob}`);
+        const data = await res.json();
+        const logEl = document.getElementById('log');
+        data.lines.forEach(line => { logEl.textContent += line + '\\n'; });
+        logEl.scrollTop = logEl.scrollHeight;
+        if (!data.done) {
+          setTimeout(pollLog, 600);
+        } else {
+          document.getElementById('status').textContent = 'Listo';
+          if (data.summary) {
+            logEl.textContent += `\\nResumen: ${data.summary.ok}/${data.summary.total} ok. Salida: ${data.summary.out_dir}\\n`;
+          }
+          currentJob = null;
+        }
+      } catch (err) {
+        document.getElementById('status').textContent = 'Error';
+        document.getElementById('log').textContent += '\\nNo se pudo leer el log. ¿Está corriendo ui_runner.py?';
+      }
+    }
+  </script>
+</body>
+</html>
