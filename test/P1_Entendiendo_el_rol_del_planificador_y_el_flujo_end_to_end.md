@@ -1,10 +1,10 @@
 ---
 title: Entendiendo el rol del planificador y el flujo end-to-end
 shortTitle: Rol y flujo
-intro: 'Aprende cómo encaja tu rol como planificador dentro del proceso completo, qué responsabilidades pertenecen a planificación y cómo tu trabajo prepara una base fiable para Scheduling, Rostering y el uso operativo posterior.'
+intro: "Aprende cómo encaja tu rol como planificador dentro del proceso completo, qué responsabilidades pertenecen a planificación y cómo tu trabajo prepara una base fiable para Scheduling, Rostering y el uso operativo posterior."
 contentType: how-tos
 versions:
-  - '*'
+  - "*"
 ---
 
 ## Entendiendo el rol del planificador dentro de la plataforma
@@ -16,11 +16,13 @@ Como planificador, trabajas en la parte del proceso que prepara la operación fu
 Usa esta quick start cuando estés empezando por primera vez como planificador, cuando necesites aclarar responsabilidades entre planificación y operación, o cuando quieras entender qué debería entregar tu trabajo al resto de la plataforma.
 
 Antes de empezar, asegúrate de que:
+
 1. Tienes acceso al entorno con el rol de **Planificador** o con una visibilidad equivalente.
 2. Tienes una idea básica de que la plataforma está dividida en varias áreas funcionales.
 3. Estás dispuesto a entender primero el flujo, antes de configurar datos o calcular escenarios.
 
 Para entender el papel de planificación dentro de la plataforma:
+
 1. Abre la plataforma e identifica las áreas principales relacionadas con planificación, listas o rostering y operaciones diarias.
 2. Revisa el flujo general y entiende que planificación ocurre antes de la ejecución del día a día.
 3. Piensa en el proceso en este orden:
@@ -39,11 +41,13 @@ Después de entender dónde se sitúa planificación dentro de la plataforma, el
 Como planificador, eres responsable de preparar la lógica de planificación y de asegurarte de que el escenario sea lo suficientemente coherente para su uso posterior. Esto significa que tu trabajo incluirá tareas como crear escenarios, validar la base de planificación y preparar salidas que después puedan consumir Scheduling, Rostering y Operaciones.
 
 Antes de continuar, ten presente esta idea:
+
 1. Visibilidad no es lo mismo que responsabilidad.
 2. Aunque puedas ver una parte amplia del sistema, no deberías intervenir en todos los dominios.
 3. Tu rol debe mantenerse enfocado en la planificación futura, no en el despacho ni en la corrección de incidencias en vivo.
 
 Para distinguir tu rol del trabajo de otros perfiles:
+
 1. Revisa qué sí deberías hacer como planificador.
    1. Preparar escenarios de planificación.
    2. Construir una base coherente para Scheduling.
@@ -73,12 +77,14 @@ Tu trabajo como planificador no termina cuando creas un escenario. Termina cuand
 Esto es importante porque una base de planificación débil genera problemas aguas abajo. Rostering puede tener dificultades para organizar el trabajo, operaciones puede verse obligada a corregir más cosas en tiempo real y las decisiones relacionadas con flota pueden volverse más difíciles de interpretar.
 
 Antes de pasar al siguiente quick start, asegúrate de entender que las salidas de planificación deberían ser:
+
 1. Claras.
 2. Coherentes.
 3. Utilizables.
 4. Trazables.
 
 Para confirmar qué recibe el resto de la plataforma desde planificación:
+
 1. Revisa el escenario o la salida de planificación que estás preparando.
 2. Pregúntate si otro equipo podría entenderla y utilizarla sin tener que adivinar lo que quisiste decir.
 3. Confirma que no estás creando algo solo para ti, sino una base que otros módulos consumirán después.

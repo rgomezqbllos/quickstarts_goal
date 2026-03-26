@@ -32,6 +32,7 @@ try:
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.units import inch
     from reportlab.lib.colors import HexColor
+    from reportlab.lib.utils import ImageReader
     from reportlab.platypus import SimpleDocTemplate, Spacer, KeepTogether
     from reportlab.platypus.flowables import Flowable
     from reportlab.pdfbase import pdfmetrics
@@ -48,8 +49,13 @@ BLUE_LIGHT = HexColor("#60A5FA"); TEXT_WHITE = HexColor("#F0F4F8")
 TEXT_GRAY  = HexColor("#94A3B8"); TEXT_DIM   = HexColor("#64748B")
 WARN       = HexColor("#FBBF24"); SUCCESS    = HexColor("#34D399")
 W, H = letter; PAD = 0.45 * inch
+TOP_MARGIN = 0.75 * inch
+BOTTOM_MARGIN = 0.6 * inch
+CONTENT_MAX_IMAGE_FRAC = 0.70
 _LOGO_RATIO = 1868 / 1031
 LOGO_PATH = ""  # se asigna en main()
+ALLOWED_IMAGE_EXTS = (".png", ".jpg", ".jpeg")
+REF_LINE_RE = re.compile(r'^\s*ref:\s*(.*?)\s*$', re.IGNORECASE)
 
 # ── Fuentes (detección automática: macOS / Linux / Windows) ─────────────────
 def _setup_fonts():
@@ -362,6 +368,59 @@ class FurtherReadingBox(Flowable):
             c.setFont("Inter", 9); c.setFillColor(BLUE_LIGHT); c.drawString(0.18*inch, fy, "→")
             draw_wrapped_bold(c, it, 0.34*inch, fy, 9, aw-0.48*inch, BLUE_LIGHT, TEXT_WHITE); y -= 5
 
+class RefWarningBox(Flowable):
+    def __init__(self, text):
+        super().__init__(); self.text = text; self.avail = W-2*PAD
+    def wrap(self, aw, ah):
+        self.width = aw
+        self.height = measure_wrapped_bold(self.text, 8.7, self.avail-0.36*inch) + 0.35*inch
+        return aw, self.height
+    def draw(self):
+        c = self.canv; aw = self.avail
+        c.setFillColor(BG_SURFACE); c.roundRect(0, 0, aw, self.height, 5, fill=1, stroke=0)
+        c.setStrokeColor(WARN); c.setLineWidth(0.8); c.roundRect(0, 0, aw, self.height, 5, fill=0, stroke=1)
+        draw_wrapped_bold(c, self.text, 0.18*inch, self.height-0.21*inch, 8.7, aw-0.3*inch, WARN, TEXT_WHITE)
+
+class ImageRefBlock(Flowable):
+    def __init__(self, image_path, max_height):
+        super().__init__()
+        self.image_path = image_path
+        self.max_height = max_height
+        self._image_reader = None
+        self._draw_w = 1.0
+        self._draw_h = 1.0
+        self._vpad = 0.08 * inch
+
+    def _compute_size(self, avail_w):
+        if self._image_reader is None:
+            self._image_reader = ImageReader(self.image_path)
+        img_w, img_h = self._image_reader.getSize()
+        max_w = max(1.0, avail_w)
+        max_h = max(1.0, self.max_height)
+        scale = min(1.0, max_w / float(img_w), max_h / float(img_h))
+        self._draw_w = max(1.0, img_w * scale)
+        self._draw_h = max(1.0, img_h * scale)
+
+    def wrap(self, aw, ah):
+        self.width = aw
+        self._compute_size(aw)
+        self.height = self._draw_h + (2 * self._vpad)
+        return aw, self.height
+
+    def split(self, aw, ah):
+        return []
+
+    def draw(self):
+        x = max(0.0, (self.width - self._draw_w) / 2.0)
+        self.canv.drawImage(
+            self.image_path,
+            x,
+            self._vpad,
+            width=self._draw_w,
+            height=self._draw_h,
+            mask="auto",
+        )
+
 SP = lambda n=1: Spacer(1, n*0.13*inch)
 
 # ── Parser de Markdown (patrones en PORTUGUÉS) ───────────────────────────────
@@ -428,6 +487,78 @@ def _parse_list(lines, i):
         break
     return items, i
 
+def extract_ref_name(line):
+    m = REF_LINE_RE.match(line or "")
+    if not m:
+        return None
+    return m.group(1).strip()
+
+def _guide_dir_candidates(md_dir, p_num):
+    dirs = [os.path.join(md_dir, f"P{p_num}")]
+    p_padded = f"P{p_num:02d}"
+    if p_padded != f"P{p_num}":
+        dirs.append(os.path.join(md_dir, p_padded))
+    return dirs
+
+def _candidate_ref_names(ref_raw):
+    name = (ref_raw or "").strip().strip("'\"")
+    if not name or "/" in name or "\\" in name:
+        return []
+    base, ext = os.path.splitext(name)
+    if ext:
+        if ext.lower() in ALLOWED_IMAGE_EXTS:
+            return [name]
+        # Soporta nombres sin extension que incluyen puntos (ej. "...11.27.55").
+        if ext[1:].isalpha() and len(ext) <= 5:
+            return []
+        return [f"{name}{extn}" for extn in ALLOWED_IMAGE_EXTS]
+    return [f"{base}{extn}" for extn in ALLOWED_IMAGE_EXTS]
+
+def _find_file_case_insensitive(folder, file_name):
+    if not os.path.isdir(folder):
+        return None
+    target = file_name.lower()
+    for item in os.listdir(folder):
+        if item.lower() == target:
+            path = os.path.join(folder, item)
+            if os.path.isfile(path):
+                return path
+    return None
+
+def resolve_ref_image(md_dir, p_num, ref_raw):
+    names = _candidate_ref_names(ref_raw)
+    if not names:
+        return None
+    for folder in _guide_dir_candidates(md_dir, p_num):
+        for name in names:
+            candidate = os.path.join(folder, name)
+            if os.path.isfile(candidate):
+                return candidate
+            candidate_ci = _find_file_case_insensitive(folder, name)
+            if candidate_ci:
+                return candidate_ci
+    return None
+
+def _validate_image_refs(blocks, md_dir, p_num, ref_cache, log_fn):
+    searched_dirs = [os.path.basename(d) for d in _guide_dir_candidates(md_dir, p_num)]
+    for block in blocks:
+        if block[0] == 'image_ref_invalid':
+            log_fn(f"    [ref] AVISO P{p_num}: referencia invalida ({block[1] or 'ref:'})")
+            continue
+        if block[0] != 'image_ref':
+            continue
+        ref_raw = block[1]
+        key = (p_num, ref_raw)
+        if key in ref_cache:
+            continue
+        image_path = resolve_ref_image(md_dir, p_num, ref_raw)
+        ref_cache[key] = image_path
+        if image_path:
+            rel = os.path.relpath(image_path, md_dir)
+            log_fn(f"    [ref] OK P{p_num}: '{ref_raw}' -> {rel}")
+        else:
+            log_fn(f"    [ref] AVISO P{p_num}: no se encontro '{ref_raw}' en {', '.join(searched_dirs)}")
+
 def _parse_section_body(body):
     lines = body.split('\n')
     blocks = []
@@ -448,6 +579,15 @@ def _parse_section_body(body):
     while i < len(lines):
         line = lines[i]
         if not line.strip(): flush(); i += 1; continue
+        ref_name = extract_ref_name(line)
+        if ref_name is not None:
+            flush()
+            if ref_name:
+                blocks.append(('image_ref', ref_name))
+            else:
+                blocks.append(('image_ref_invalid', line.strip()))
+            i += 1
+            continue
         if line.startswith('>'):
             flush()
             bq = []
@@ -493,7 +633,7 @@ def _parse_section_body(body):
     flush()
     return blocks
 
-def _blocks_to_flowables(blocks, sec_title, sec_num, is_further):
+def _blocks_to_flowables(blocks, sec_title, sec_num, is_further, md_dir, p_num, ref_cache, image_max_h):
     fl = [KeepTogether([SectionHeader(sec_title, sec_num if not is_further else None), SP()])]
     for b in blocks:
         kind = b[0]
@@ -505,14 +645,23 @@ def _blocks_to_flowables(blocks, sec_title, sec_num, is_further):
         elif kind == 'question': fl += [QuestionList(b[1].strip().rstrip(':'), b[2]), SP()]
         elif kind == 'example':  fl += [ExampleBox(b[1].strip().rstrip(':'), b[2], numbered=b[3]), SP()]
         elif kind == 'further':  fl += [FurtherReadingBox(b[1]), SP()]
+        elif kind == 'image_ref':
+            image_path = ref_cache.get((p_num, b[1]))
+            if image_path:
+                fl += [KeepTogether([ImageRefBlock(image_path, image_max_h), SP()])]
+            else:
+                fl += [RefWarningBox(f"Imagen no encontrada para referencia: ref: {b[1]}"), SP()]
+        elif kind == 'image_ref_invalid':
+            fl += [RefWarningBox("Referencia de imagen vacia o invalida. Usa: ref: nombre_imagen"), SP()]
     return fl
 
 # ── Builder principal ────────────────────────────────────────────────────────
-def build_pdf(md_path, out_dir):
+def build_pdf(md_path, out_dir, log_fn=print):
     basename = os.path.basename(md_path)
     base_no_ext = os.path.splitext(basename)[0]
     m = re.match(r'^P(\d+)', basename, re.IGNORECASE)
     p_num = int(m.group(1)) if m else 0
+    md_dir = os.path.dirname(os.path.abspath(md_path))
 
     with open(md_path, 'r', encoding='utf-8') as f:
         raw = f.read()
@@ -533,18 +682,37 @@ def build_pdf(md_path, out_dir):
 
     bg = make_bg(f"goalbus  •  Quick Start P{p_num}", f"goalbus  •  {title[:60]}")
     story = [HeroBlock(p_num, title, intro), SP(2)]
+    image_max_h = (H - TOP_MARGIN - BOTTOM_MARGIN) * CONTENT_MAX_IMAGE_FRAC
 
+    parsed_sections = []
     sec_num = 0
     for sec_title, sec_body in sections:
         is_further = any(k in sec_title.lower() for k in ['leituras adicionais', 'lecturas adicionales'])
-        if not is_further: sec_num += 1
+        if not is_further:
+            sec_num += 1
         blocks = _parse_section_body(sec_body)
-        story.extend(_blocks_to_flowables(blocks, sec_title, sec_num if not is_further else None, is_further))
+        parsed_sections.append((sec_title, sec_num if not is_further else None, is_further, blocks))
+
+    ref_cache = {}
+    for _, _, _, blocks in parsed_sections:
+        _validate_image_refs(blocks, md_dir, p_num, ref_cache, log_fn)
+
+    for sec_title, sec_index, is_further, blocks in parsed_sections:
+        story.extend(_blocks_to_flowables(
+            blocks,
+            sec_title,
+            sec_index,
+            is_further,
+            md_dir,
+            p_num,
+            ref_cache,
+            image_max_h,
+        ))
 
     out_path = os.path.join(out_dir, f"{base_no_ext}.pdf")
     doc = SimpleDocTemplate(out_path, pagesize=letter,
                             leftMargin=PAD, rightMargin=PAD,
-                            topMargin=0.75*inch, bottomMargin=0.6*inch)
+                            topMargin=TOP_MARGIN, bottomMargin=BOTTOM_MARGIN)
     doc.build(story, onFirstPage=bg, onLaterPages=bg)
     return out_path
 
@@ -603,7 +771,7 @@ def main():
     for p_num, md_path in md_files:
         fname = os.path.basename(md_path)
         try:
-            out_path = build_pdf(md_path, out_dir)
+            out_path = build_pdf(md_path, out_dir, log_fn=print)
             print(f"  ✓ {os.path.basename(out_path)}")
             ok += 1
         except Exception as e:
@@ -657,7 +825,7 @@ def run_pipeline(md_dir='', md_file='', logo_path='', out_dir='', p_from=1, p_to
     for p_num, md_path in md_files:
         fname = os.path.basename(md_path)
         try:
-            out_path = build_pdf(md_path, out_dir)
+            out_path = build_pdf(md_path, out_dir, log_fn=log_fn)
             log_fn(f"  ✓ {os.path.basename(out_path)}")
             ok += 1
         except Exception as e:
