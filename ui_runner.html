@@ -8,10 +8,14 @@
     .card { max-width: 720px; margin: 0 auto; background: #141f30; border-radius: 12px; padding: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.4); }
     h1 { margin-top: 0; color: #6ef8ec; }
     label { display: block; margin-top: 12px; font-weight: bold; color: #a5b4c7; }
-    input[type=text] { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #1f2b3d; background: #0a1018; color: #e5e7eb; }
+    input[type=text], select { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #1f2b3d; background: #0a1018; color: #e5e7eb; }
     .btn { margin-top: 10px; padding: 10px 14px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; }
     .primary { background: #2bc4ba; color: #0a1018; }
     .secondary { background: #1a2640; color: #e5e7eb; margin-left: 8px; }
+    .actions { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+    .actions .btn { margin-top: 0; }
+    .actions .format-wrap { min-width: 220px; }
+    .actions .format-wrap label { margin-top: 0; margin-bottom: 6px; }
     #log { white-space: pre-wrap; background: #0a1018; border: 1px solid #1f2b3d; border-radius: 8px; padding: 12px; margin-top: 18px; height: 260px; overflow-y: auto; font-family: SFMono-Regular, Consolas, monospace; font-size: 13px; }
     small { color: #94a3b8; }
   </style>
@@ -19,7 +23,7 @@
 <body>
   <div class="card">
     <h1>goalbus PDF maker</h1>
-    <p>Selecciona la carpeta con los Markdown y ejecuta. Los PDFs se generan en <code>result</code> dentro de esa carpeta.</p>
+    <p>Selecciona la carpeta con los Markdown y ejecuta. La salida se genera en <code>result</code> dentro de esa carpeta.</p>
 
     <label>Carpeta de Markdown</label>
     <input id="md_dir" type="text" placeholder="/ruta/a/markdowns" />
@@ -33,7 +37,16 @@
     <input id="out" type="text" placeholder="Por defecto: <carpeta>/result" />
     <button class="btn secondary" onclick="ensureOut()">Crear carpeta result</button>
 
-    <button class="btn primary" onclick="runJob()">Ejecutar</button>
+    <div class="actions">
+      <button class="btn primary" onclick="runJob()">Ejecutar</button>
+      <div class="format-wrap">
+        <label for="output_format">Formato de salida</label>
+        <select id="output_format">
+          <option value="pdf" selected>PDF (.pdf)</option>
+          <option value="docx">DOCX (.docx)</option>
+        </select>
+      </div>
+    </div>
     <small id="status"></small>
 
     <div id="log"></div>
@@ -93,12 +106,18 @@
       const md_dir = document.getElementById('md_dir').value.trim();
       const logo = document.getElementById('logo').value.trim();
       const out  = document.getElementById('out').value.trim();
+      const output_format = document.getElementById('output_format').value;
       if (!md_dir) { alert('Indica la carpeta de Markdown'); return; }
       document.getElementById('log').textContent = '';
       document.getElementById('status').textContent = 'Ejecutando...';
       try {
-        const res = await fetch(`${base}/run`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({md_dir, logo, out})});
+        const res = await fetch(`${base}/run`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({md_dir, logo, out, output_format})});
         const data = await res.json();
+        if (!res.ok) {
+          document.getElementById('status').textContent = 'Error';
+          document.getElementById('log').textContent = data.error || 'No se pudo iniciar el proceso.';
+          return;
+        }
         currentJob = data.job_id;
         pollLog();
       } catch (err) {
@@ -119,7 +138,8 @@
         } else {
           document.getElementById('status').textContent = 'Listo';
           if (data.summary) {
-            logEl.textContent += `\\nResumen: ${data.summary.ok}/${data.summary.total} ok. Salida: ${data.summary.out_dir}\\n`;
+            const fmt = (data.summary.format || 'pdf').toUpperCase();
+            logEl.textContent += `\\nResumen: ${data.summary.ok}/${data.summary.total} ok. Formato: ${fmt}. Salida: ${data.summary.out_dir}\\n`;
           }
           currentJob = null;
         }

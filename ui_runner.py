@@ -128,12 +128,18 @@ def ensure_out():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 
-def run_job(job_id, md_dir, logo, out):
+def run_job(job_id, md_dir, logo, out, output_format):
     log_q = jobs[job_id]["log"]
     def log_fn(msg):
         log_q.put(msg)
     try:
-        summary = run_pipeline(md_dir=md_dir, logo_path=logo, out_dir=out, log_fn=log_fn)
+        summary = run_pipeline(
+            md_dir=md_dir,
+            logo_path=logo,
+            out_dir=out,
+            output_format=output_format,
+            log_fn=log_fn,
+        )
         jobs[job_id]["summary"] = summary
     except Exception as e:
         log_q.put(f"ERROR: {e}")
@@ -146,9 +152,12 @@ def run():
     md_dir = data.get("md_dir", "")
     logo = data.get("logo", "")
     out  = data.get("out", "")
+    output_format = (data.get("output_format", "pdf") or "pdf").strip().lower()
+    if output_format not in ("pdf", "docx"):
+        return jsonify({"error": f"Formato no soportado: {output_format}"}), 400
     job_id = str(len(jobs) + 1)
     jobs[job_id] = {"log": Queue(), "summary": None}
-    t = threading.Thread(target=run_job, args=(job_id, md_dir, logo, out), daemon=True)
+    t = threading.Thread(target=run_job, args=(job_id, md_dir, logo, out, output_format), daemon=True)
     t.start()
     return jsonify({"job_id": job_id})
 

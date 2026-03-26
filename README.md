@@ -13,19 +13,20 @@ Proyecto para generar PDFs a partir de Markdown de Quick Starts y operarlos via 
 - Dependencias Python:
   - `flask`
   - `reportlab`
+  - `python-docx` (para salida `.docx`)
 
 Instalacion (recomendado con venv):
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install flask reportlab
+pip install flask reportlab python-docx
 ```
 
 Windows:
 ```bat
 python -m venv .venv
 .\.venv\Scripts\activate
-pip install flask reportlab
+pip install flask reportlab python-docx
 ```
 
 ## Uso rapido (UI)
@@ -38,6 +39,7 @@ La UI permite:
 - Elegir carpeta de Markdown
 - Elegir logo (opcional)
 - Crear carpeta de salida (si no existe)
+- Elegir formato de salida (`PDF` o `DOCX`) junto al botón Ejecutar
 - Ejecutar generacion y ver logs
 
 Seletores multiplataforma:
@@ -60,16 +62,19 @@ Opciones:
 - `--logo` ruta a `goal-logo-white.png`
 - `--out` carpeta de salida
 - `--from` y `--to` para rango de Pxx
+- `--format` formato de salida (`pdf` o `docx`)
 
 ## Salida
-Cada PDF se guarda con el mismo nombre del Markdown (solo cambia la extension a `.pdf`).
+Cada archivo se guarda con el mismo nombre del Markdown, cambiando la extension segun formato:
+- `.pdf` si `--format pdf` (default)
+- `.docx` si `--format docx`
 
 ## Notas de formato
 - Los encabezados `##` se renderizan con barra lateral y numero de seccion.
 - El texto no se traduce ni se reescribe: se respeta el Markdown original.
 
 ## Referencias de imagen (`ref:`)
-Puedes insertar imagenes en el PDF escribiendo una linea independiente en el Markdown:
+Puedes insertar imagenes en una linea independiente del Markdown. Aplica tanto para salida `PDF` como `DOCX`.
 
 ```md
 ref: Captura de pantalla 2026-03-26 a las 11.27.55.png
@@ -81,23 +86,83 @@ Tambien se admite referencia sin extension:
 ref: imagen1
 ```
 
-Reglas de resolucion:
-- La carpeta base es la carpeta de Markdown seleccionada por el usuario en la UI (o `--md-dir` en CLI).
+### Sintaxis exacta
+
+```md
+ref: <nombre_imagen> [| <opcion1>] [| <opcion2>]
+```
+
+Opciones soportadas (forma recomendada):
+- `size=auto|full|compact`
+- `split=N` con `N` entre `1` y `6`
+
+Atajos tambien validos (equivalentes):
+- `| auto`, `| full`, `| compact` (equivalente a `size=...`)
+- `| 2`, `| 3` ... (equivalente a `split=...`)
+
+### Ejemplos listos para copiar
+
+```md
+ref: imagen_browser | size=full
+ref: login | size=compact
+ref: captura_larga | split=2
+ref: imagen_auto | size=auto | split=3
+ref: Captura de pantalla 2026-03-26 a las 17.50.02 | compact
+```
+
+### Donde busca las imagenes
+
+La carpeta base es la carpeta de Markdown seleccionada por el usuario en la UI (o `--md-dir` en CLI).
+
 - Para un archivo `P1_*.md`, se busca la imagen en subcarpetas `P1/` y `P01/` (fallback).
 - Para un archivo `P12_*.md`, se busca en `P12/`.
 - Si la referencia no tiene extension, se intenta en orden: `.png`, `.jpg`, `.jpeg`.
 
-Comportamiento en PDF:
+### Como decide el tamaño (`size`)
+
+`size=auto` (default) aplica estas reglas:
+- Imagen panoramica/ancha (ejemplo: pantalla completa de navegador) -> tiende a `full`.
+- Imagen focal o casi cuadrada/vertical (ejemplo: login/modal) -> tiende a `compact`.
+- Si en auto el contenido quedara poco legible, el motor puede subir a `full`.
+
+`size=full`:
+- Usa el mayor ancho util posible, priorizando legibilidad.
+
+`size=compact`:
+- Usa ancho reducido para no romper ritmo visual cuando no hace falta ocupar toda la pagina.
+
+### Como funciona `split`
+
+- `split` divide la imagen verticalmente en bloques consecutivos (de arriba hacia abajo).
+- Cada bloque se coloca en orden y no se recorta entre paginas.
+- Si no indicas `split` y la imagen es demasiado alta, el motor puede dividir automaticamente.
+- Si indicas `split`, ese valor manual tiene prioridad sobre el split automatico.
+
+Comportamiento de render:
 - La imagen se inserta centrada, manteniendo proporcion.
 - Se limita ancho/alto para no romper la maquetacion ni invadir header/footer.
 - No se escala hacia arriba (sin `upscale`) para preservar nitidez percibida.
 - El bloque de imagen no se corta entre paginas.
-- Si falta la imagen o la referencia es invalida, se agrega un aviso visible en el PDF y se registra warning en logs, sin detener la generacion.
+- Si usas `split`, cada fragmento queda en bloques consecutivos y no se recorta.
+- Si falta la imagen o la referencia es invalida, se agrega un aviso visible en la salida y se registra warning en logs, sin detener la generacion.
+
+### Guia rapida de decision
+
+- Usa `size=auto` como default.
+- Usa `size=full` para pantallas completas con texto pequeño.
+- Usa `size=compact` para capturas de dialogos o zonas puntuales.
+- Usa `split=2` o `split=3` para capturas muy altas donde necesitas leer detalle sin reducir demasiado.
+
+### Errores comunes (y como evitarlos)
+
+- `ref:` debe ir solo en su linea.
+- No uses rutas en `ref:` (`/` o `\\`); solo nombre de archivo.
+- Si hay opciones invalidas, el sistema avisa en log y sigue con fallback seguro.
 
 ## Plan de automatizacion de capturas (video + OCR)
 Se genero un plan tecnico para automatizar capturas desde video y agregar imagenes a los Quick Starts sin alterar el texto:
 - `output/doc/plan_captura_imagenes_quickstarts.docx`
 
 ## Problemas comunes
-- `ModuleNotFoundError: No module named 'flask'`: instala dependencias con `pip install flask reportlab`.
+- `ModuleNotFoundError: No module named 'flask'`: instala dependencias con `pip install flask reportlab python-docx`.
 - Rutas con espacios: usa comillas en el comando.

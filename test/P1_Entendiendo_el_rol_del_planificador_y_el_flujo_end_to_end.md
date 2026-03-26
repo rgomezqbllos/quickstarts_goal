@@ -34,6 +34,8 @@ Para entender el papel de planificación dentro de la plataforma:
 
 Cuando termines esta sección, deberías entender que planificación alimenta módulos posteriores y que tu trabajo ocurre antes de la ejecución táctica.
 
+ref: Captura de pantalla 2026-03-26 a las 17.50.02 | compact
+
 ## Diferenciando planificación de operaciones y vehículos
 
 Después de entender dónde se sitúa planificación dentro de la plataforma, el siguiente paso es entender qué te corresponde a ti y qué no.
@@ -70,11 +72,15 @@ Para distinguir tu rol del trabajo de otros perfiles:
 
 Cuando termines esta sección, deberías poder explicar la diferencia entre planificación, operaciones y vehículos sin mezclar responsabilidades.
 
+ref: Captura de pantalla 2026-03-26 a las 11.27.55
+
 ## Confirmando qué reciben los equipos posteriores de planificación
 
 Tu trabajo como planificador no termina cuando creas un escenario. Termina cuando preparas una salida que otros equipos y otros módulos realmente puedan usar.
 
 Esto es importante porque una base de planificación débil genera problemas aguas abajo. Rostering puede tener dificultades para organizar el trabajo, operaciones puede verse obligada a corregir más cosas en tiempo real y las decisiones relacionadas con flota pueden volverse más difíciles de interpretar.
+
+ref: Captura de pantalla 2026-03-26 a las 11.27.55 | split=2
 
 Antes de pasar al siguiente quick start, asegúrate de entender que las salidas de planificación deberían ser:
 
@@ -95,6 +101,8 @@ Para confirmar qué recibe el resto de la plataforma desde planificación:
    3. Si estás corrigiendo la disponibilidad física de la flota, estás en el dominio de vehículos.
 
 Cuando termines esta sección, deberías estar listo para empezar a construir la base de planificación en el siguiente quick start.
+
+ref: Captura de pantalla 2026-03-26 a las 11.27.55 | compact
 
 ## Lecturas adicionales
 
