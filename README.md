@@ -68,6 +68,32 @@ Cada PDF se guarda con el mismo nombre del Markdown (solo cambia la extension a 
 - Los encabezados `##` se renderizan con barra lateral y numero de seccion.
 - El texto no se traduce ni se reescribe: se respeta el Markdown original.
 
+## Referencias de imagen (`ref:`)
+Puedes insertar imagenes en el PDF escribiendo una linea independiente en el Markdown:
+
+```md
+ref: Captura de pantalla 2026-03-26 a las 11.27.55.png
+```
+
+Tambien se admite referencia sin extension:
+
+```md
+ref: imagen1
+```
+
+Reglas de resolucion:
+- La carpeta base es la carpeta de Markdown seleccionada por el usuario en la UI (o `--md-dir` en CLI).
+- Para un archivo `P1_*.md`, se busca la imagen en subcarpetas `P1/` y `P01/` (fallback).
+- Para un archivo `P12_*.md`, se busca en `P12/`.
+- Si la referencia no tiene extension, se intenta en orden: `.png`, `.jpg`, `.jpeg`.
+
+Comportamiento en PDF:
+- La imagen se inserta centrada, manteniendo proporcion.
+- Se limita ancho/alto para no romper la maquetacion ni invadir header/footer.
+- No se escala hacia arriba (sin `upscale`) para preservar nitidez percibida.
+- El bloque de imagen no se corta entre paginas.
+- Si falta la imagen o la referencia es invalida, se agrega un aviso visible en el PDF y se registra warning en logs, sin detener la generacion.
+
 ## Plan de automatizacion de capturas (video + OCR)
 Se genero un plan tecnico para automatizar capturas desde video y agregar imagenes a los Quick Starts sin alterar el texto:
 - `output/doc/plan_captura_imagenes_quickstarts.docx`
@@ -75,4 +101,3 @@ Se genero un plan tecnico para automatizar capturas desde video y agregar imagen
 ## Problemas comunes
 - `ModuleNotFoundError: No module named 'flask'`: instala dependencias con `pip install flask reportlab`.
 - Rutas con espacios: usa comillas en el comando.
-
