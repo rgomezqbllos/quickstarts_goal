@@ -30,56 +30,11 @@ PORT = 1234
 app = Flask(__name__)
 jobs = {}
 
-_PS_FOLDER_PICKER = """\
+_PS_FOLDER_FALLBACK = """\
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$code = @'
-using System;
-using System.Runtime.InteropServices;
-[ComImport, Guid("DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-public interface IFileOpenDialog {
-    [PreserveSig] int Show(IntPtr hwnd);
-    void SetFileTypes(uint n, IntPtr t); void SetFileTypeIndex(uint i); void GetFileTypeIndex(out uint i);
-    void Advise(IntPtr p, out uint c); void Unadvise(uint c);
-    void SetOptions(uint fos); void GetOptions(out uint fos);
-    void SetDefaultFolder(IShellItem p); void SetFolder(IShellItem p);
-    void GetFolder(out IShellItem p); void GetCurrentSelection(out IShellItem p);
-    void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string n);
-    void GetFileName([MarshalAs(UnmanagedType.LPWStr)] out string n);
-    void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string t);
-    void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string t);
-    void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string t);
-    void GetResult(out IShellItem p);
-    void AddPlace(IShellItem p, int f);
-    void SetDefaultExtension([MarshalAs(UnmanagedType.LPWStr)] string e);
-    void Close(int hr); void SetClientGuid(ref Guid g); void ClearClientData(); void SetFilter(IntPtr f);
-    void GetResults(out IntPtr p); void GetSelectedItems(out IntPtr p);
-}
-[ComImport, Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-public interface IShellItem {
-    void BindToHandler(IntPtr b, ref Guid bh, ref Guid ri, out IntPtr pv);
-    void GetParent(out IShellItem p);
-    void GetDisplayName(uint s, [MarshalAs(UnmanagedType.LPWStr)] out string n);
-    void GetAttributes(uint m, out uint a); void Compare(IShellItem p, uint h, out int o);
-}
-'@
-Add-Type -TypeDefinition $code -ErrorAction SilentlyContinue
-try {
-    $dlg = [Activator]::CreateInstance([Type]::GetTypeFromCLSID([Guid]"DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7"))
-    $dlg.SetOptions(0x20)
-    $dlg.SetTitle("Selecciona carpeta de Markdown")
-    if ($dlg.Show([IntPtr]::Zero) -eq 0) {
-        $item = $null; $dlg.GetResult([ref]$item)
-        $path = $null; $item.GetDisplayName(0x80058000, [ref]$path)
-        Write-Output $path
-    }
-} catch {
-    # Fallback: BrowseForFolder con BIF_NEWDIALOGSTYLE+BIF_EDITBOX+BIF_RETURNONLYFSDIRS
-    # - No desaparece al hacer clic fuera
-    # - Devuelve la ruta real del filesystem (incluye rutas OneDrive correctas)
-    $shell = New-Object -ComObject Shell.Application
-    $folder = $shell.BrowseForFolder(0, "Selecciona carpeta de Markdown", 0x51)
-    if ($folder) { Write-Output $folder.Self.Path }
-}
+$shell = New-Object -ComObject Shell.Application
+$folder = $shell.BrowseForFolder(0, "Selecciona carpeta de Markdown", 0x51)
+if ($folder) { Write-Output $folder.Self.Path }
 """
 
 _PS_FILE_PICKER = """\
@@ -98,6 +53,70 @@ $d.Title = "Selecciona logo (png)"
 if ($d.ShowDialog($owner) -eq "OK") { Write-Output $d.FileName }
 $owner.Dispose()
 """
+
+
+def _win_pick_folder_ctypes(title):
+    """
+    Llama a IFileOpenDialog directamente via ctypes de Python.
+    - Sin PowerShell, sin Add-Type, sin dependencias externas.
+    - Muestra el diálogo moderno del Explorador de Windows.
+    - Devuelve siempre la ruta real del filesystem (rutas OneDrive incluidas).
+    """
+    try:
+        import ctypes
+        import ctypes.wintypes as wt
+
+        class GUID(ctypes.Structure):
+            _fields_ = [('Data1', wt.DWORD), ('Data2', wt.WORD),
+                        ('Data3', wt.WORD), ('Data4', ctypes.c_ubyte * 8)]
+
+        def make_guid(d1, d2, d3, *b):
+            return GUID(d1, d2, d3, (ctypes.c_ubyte * 8)(*b))
+
+        # CLSID_FileOpenDialog y IID_IFileOpenDialog
+        CLSID = make_guid(0xDC1C5A9C, 0xE88A, 0x4DDE, 0xA5, 0xA1, 0x60, 0xF8, 0x2A, 0x20, 0xAE, 0xF7)
+        IID   = make_guid(0xD57C7288, 0xD4AD, 0x4768, 0xBE, 0x02, 0x9D, 0x96, 0x95, 0x32, 0xD9, 0x60)
+
+        ole32 = ctypes.windll.ole32
+        ole32.CoInitialize(None)
+
+        obj = ctypes.c_void_p()
+        if ole32.CoCreateInstance(ctypes.byref(CLSID), None, 1,
+                                  ctypes.byref(IID), ctypes.byref(obj)) != 0:
+            return ""
+
+        def vtfn(this, idx, *argtypes):
+            """Devuelve el método del vtable COM en la posición idx."""
+            tab = ctypes.cast(
+                ctypes.cast(this, ctypes.POINTER(ctypes.c_void_p))[0],
+                ctypes.POINTER(ctypes.c_void_p)
+            )
+            return ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, *argtypes)(tab[idx])
+
+        # SetOptions: FOS_PICKFOLDERS(0x20) | FOS_FORCEFILESYSTEM(0x40)
+        vtfn(obj, 9, wt.DWORD)(obj, 0x60)
+        # SetTitle (vtable[17])
+        vtfn(obj, 17, ctypes.c_wchar_p)(obj, title)
+        # Show(hwnd=NULL) — vtable[3]; != 0 significa cancelado
+        if vtfn(obj, 3, ctypes.c_void_p)(obj, None) != 0:
+            return ""
+
+        # GetResult → IShellItem* (vtable[20])
+        item = ctypes.c_void_p()
+        if vtfn(obj, 20, ctypes.POINTER(ctypes.c_void_p))(obj, ctypes.byref(item)) != 0:
+            return ""
+
+        # IShellItem::GetDisplayName(SIGDN_FILESYSPATH=0x80058000) → ruta real
+        pbuf = ctypes.c_void_p()
+        if vtfn(item, 5, wt.DWORD, ctypes.POINTER(ctypes.c_void_p))(
+                item, 0x80058000, ctypes.byref(pbuf)) != 0 or not pbuf.value:
+            return ""
+
+        path = ctypes.wstring_at(pbuf.value)
+        ole32.CoTaskMemFree(pbuf)
+        return path
+    except Exception:
+        return ""
 
 
 def _run_ps(script):
@@ -140,7 +159,10 @@ def pick_folder():
             if res.returncode == 0:
                 return res.stdout.strip()
         elif os.name == "nt":
-            return _run_ps(_PS_FOLDER_PICKER)
+            path = _win_pick_folder_ctypes("Selecciona carpeta de Markdown")
+            if not path:
+                path = _run_ps(_PS_FOLDER_FALLBACK)
+            return path
         else:
             if shutil.which("zenity"):
                 res = subprocess.run(
