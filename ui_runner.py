@@ -19,6 +19,7 @@ import webbrowser
 from queue import Queue
 from flask import Flask, request, jsonify, send_from_directory
 import subprocess
+import tempfile
 import os
 import sys
 import shutil
@@ -29,11 +30,104 @@ PORT = 1234
 app = Flask(__name__)
 jobs = {}
 
+_PS_FOLDER_PICKER = """\
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$code = @'
+using System;
+using System.Runtime.InteropServices;
+[ComImport, Guid("DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IFileOpenDialog {
+    [PreserveSig] int Show(IntPtr hwnd);
+    void SetFileTypes(uint n, IntPtr t); void SetFileTypeIndex(uint i); void GetFileTypeIndex(out uint i);
+    void Advise(IntPtr p, out uint c); void Unadvise(uint c);
+    void SetOptions(uint fos); void GetOptions(out uint fos);
+    void SetDefaultFolder(IShellItem p); void SetFolder(IShellItem p);
+    void GetFolder(out IShellItem p); void GetCurrentSelection(out IShellItem p);
+    void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string n);
+    void GetFileName([MarshalAs(UnmanagedType.LPWStr)] out string n);
+    void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string t);
+    void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string t);
+    void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string t);
+    void GetResult(out IShellItem p);
+    void AddPlace(IShellItem p, int f);
+    void SetDefaultExtension([MarshalAs(UnmanagedType.LPWStr)] string e);
+    void Close(int hr); void SetClientGuid(ref Guid g); void ClearClientData(); void SetFilter(IntPtr f);
+    void GetResults(out IntPtr p); void GetSelectedItems(out IntPtr p);
+}
+[ComImport, Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IShellItem {
+    void BindToHandler(IntPtr b, ref Guid bh, ref Guid ri, out IntPtr pv);
+    void GetParent(out IShellItem p);
+    void GetDisplayName(uint s, [MarshalAs(UnmanagedType.LPWStr)] out string n);
+    void GetAttributes(uint m, out uint a); void Compare(IShellItem p, uint h, out int o);
+}
+'@
+Add-Type -TypeDefinition $code -ErrorAction SilentlyContinue
+try {
+    $dlg = [Activator]::CreateInstance([Type]::GetTypeFromCLSID([Guid]"DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7"))
+    $dlg.SetOptions(0x20)
+    $dlg.SetTitle("Selecciona carpeta de Markdown")
+    if ($dlg.Show([IntPtr]::Zero) -eq 0) {
+        $item = $null; $dlg.GetResult([ref]$item)
+        $path = $null; $item.GetDisplayName(0x80058000, [ref]$path)
+        Write-Output $path
+    }
+} catch {
+    Add-Type -AssemblyName System.Windows.Forms
+    [void][System.Windows.Forms.Application]::EnableVisualStyles()
+    $fb = New-Object System.Windows.Forms.FolderBrowserDialog
+    $fb.Description = "Selecciona carpeta de Markdown"
+    $fb.ShowNewFolderButton = $false
+    if ($fb.ShowDialog() -eq "OK") { Write-Output $fb.SelectedPath }
+}
+"""
+
+_PS_FILE_PICKER = """\
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Windows.Forms
+[void][System.Windows.Forms.Application]::EnableVisualStyles()
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true
+$owner.StartPosition = "CenterScreen"
+$owner.Size = New-Object System.Drawing.Size(0,0)
+[void]$owner.Show()
+[void]$owner.Focus()
+$d = New-Object System.Windows.Forms.OpenFileDialog
+$d.Filter = "PNG files (*.png)|*.png|All files (*.*)|*.*"
+$d.Title = "Selecciona logo (png)"
+if ($d.ShowDialog($owner) -eq "OK") { Write-Output $d.FileName }
+$owner.Dispose()
+"""
+
+
+def _run_ps(script):
+    """Escribe el script en un .ps1 temporal y lo ejecuta con UTF-8."""
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.ps1',
+                                         delete=False, encoding='utf-8') as f:
+            f.write(script)
+            tmp = f.name
+        res = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", tmp],
+            capture_output=True, encoding='utf-8', timeout=60
+        )
+        return res.stdout.strip() if res.returncode == 0 else ""
+    except Exception:
+        return ""
+    finally:
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+
 def pick_folder():
     """
     Selector de carpeta multiplataforma sin Tk.
     - macOS: AppleScript.
-    - Windows: PowerShell + OpenFileDialog moderno (Explorador de Windows).
+    - Windows: IFileOpenDialog via COM (maneja OneDrive y rutas Unicode).
     - Linux: zenity (si está disponible).
     Devuelve '' si se cancela o no está disponible.
     """
@@ -46,32 +140,7 @@ def pick_folder():
             if res.returncode == 0:
                 return res.stdout.strip()
         elif os.name == "nt":
-            cmd = (
-                "Add-Type -AssemblyName System.Windows.Forms;"
-                "[System.Windows.Forms.Application]::EnableVisualStyles();"
-                "$owner = New-Object System.Windows.Forms.Form;"
-                "$owner.TopMost = $true;"
-                "$owner.StartPosition = 'CenterScreen';"
-                "$owner.Size = New-Object System.Drawing.Size(0,0);"
-                "[void]$owner.Show();"
-                "[void]$owner.Focus();"
-                "$d = New-Object System.Windows.Forms.OpenFileDialog;"
-                "$d.ValidateNames = $false;"
-                "$d.CheckFileExists = $false;"
-                "$d.CheckPathExists = $true;"
-                "$d.FileName = 'Selecciona esta carpeta.';"
-                "$d.Title = 'Selecciona carpeta de Markdown';"
-                "if ($d.ShowDialog($owner) -eq 'OK') {"
-                "  [System.IO.Path]::GetDirectoryName($d.FileName)"
-                "};"
-                "$owner.Dispose()"
-            )
-            res = subprocess.run(
-                ["powershell", "-NoProfile", "-Command", cmd],
-                capture_output=True, text=True, timeout=60
-            )
-            if res.returncode == 0:
-                return res.stdout.strip()
+            return _run_ps(_PS_FOLDER_PICKER)
         else:
             if shutil.which("zenity"):
                 res = subprocess.run(
@@ -98,27 +167,7 @@ def pick_file():
             if res.returncode == 0:
                 return res.stdout.strip()
         elif os.name == "nt":
-            cmd = (
-                "Add-Type -AssemblyName System.Windows.Forms;"
-                "[System.Windows.Forms.Application]::EnableVisualStyles();"
-                "$owner = New-Object System.Windows.Forms.Form;"
-                "$owner.TopMost = $true;"
-                "$owner.StartPosition = 'CenterScreen';"
-                "$owner.Size = New-Object System.Drawing.Size(0,0);"
-                "[void]$owner.Show();"
-                "[void]$owner.Focus();"
-                "$d = New-Object System.Windows.Forms.OpenFileDialog;"
-                "$d.Filter = 'PNG files (*.png)|*.png|All files (*.*)|*.*';"
-                "$d.Title = 'Selecciona logo (png)';"
-                "if ($d.ShowDialog($owner) -eq 'OK') { Write-Output $d.FileName };"
-                "$owner.Dispose()"
-            )
-            res = subprocess.run(
-                ["powershell", "-NoProfile", "-Command", cmd],
-                capture_output=True, text=True, timeout=60
-            )
-            if res.returncode == 0:
-                return res.stdout.strip()
+            return _run_ps(_PS_FILE_PICKER)
         else:
             if shutil.which("zenity"):
                 res = subprocess.run(
