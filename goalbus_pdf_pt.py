@@ -1039,11 +1039,16 @@ def _collect_document_structure(md_path, log_fn):
     }
 
 def _docx_set_page_background(document, fill_hex, OxmlElement, qn):
-    for node in document.element.xpath("./w:background"):
+    for node in document.element.findall(qn("w:background")):
         document.element.remove(node)
     bg = OxmlElement("w:background")
+    bg.set(qn("w:fill"), fill_hex)
     bg.set(qn("w:color"), fill_hex)
-    document.element.insert(0, bg)
+    document.element.body.addprevious(bg)
+    settings = document.settings.element
+    if settings.find(qn("w:displayBackgroundShape")) is None:
+        disp = OxmlElement("w:displayBackgroundShape")
+        settings.insert(0, disp)
 
 def _docx_set_cell_background(cell, fill_hex, OxmlElement, qn):
     tc_pr = cell._tc.get_or_add_tcPr()
