@@ -15,18 +15,31 @@ Proyecto para generar PDFs a partir de Markdown de Quick Starts y operarlos via 
   - `reportlab`
   - `python-docx` (para salida `.docx`)
 
-Instalacion (recomendado con venv):
+## Instalación (recomendado con venv)
+### macOS / Linux
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
-pip install flask reportlab python-docx
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
-Windows:
+### Windows (PowerShell)
 ```bat
-python -m venv .venv
+py -3 -m venv .venv
 .\.venv\Scripts\activate
-pip install flask reportlab python-docx
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Si no tienes `requirements.txt`, instala directo:
+```bash
+python -m pip install flask reportlab python-docx
+```
+
+Verificación rápida (debe apuntar a `.venv`):
+```bash
+python -c "import sys; print(sys.executable)"
 ```
 
 ## Uso rapido (UI)
@@ -129,7 +142,9 @@ La carpeta base es la carpeta de Markdown seleccionada por el usuario en la UI (
 - Usa el mayor ancho util posible, priorizando legibilidad.
 
 `size=compact`:
-- Usa ancho reducido para no romper ritmo visual cuando no hace falta ocupar toda la pagina.
+- Usa ancho reducido y ahora tambien limita altura de forma analitica segun la relacion de aspecto.
+- Resultado esperado: menos imagenes altas en `compact`, conservando proporcion (sin deformar).
+- Si escribes `size=compact` de forma explicita, se respeta ese modo (no se promociona a `full`).
 
 ### Como funciona `split`
 
@@ -141,6 +156,7 @@ La carpeta base es la carpeta de Markdown seleccionada por el usuario en la UI (
 Comportamiento de render:
 - La imagen se inserta centrada, manteniendo proporcion.
 - Se limita ancho/alto para no romper la maquetacion ni invadir header/footer.
+- Se aplica un marco sutil y una sombra negra suave para mejorar separacion visual.
 - No se escala hacia arriba (sin `upscale`) para preservar nitidez percibida.
 - El bloque de imagen no se corta entre paginas.
 - Si usas `split`, cada fragmento queda en bloques consecutivos y no se recorta.
@@ -166,3 +182,5 @@ Se genero un plan tecnico para automatizar capturas desde video y agregar imagen
 ## Problemas comunes
 - `ModuleNotFoundError: No module named 'flask'`: instala dependencias con `pip install flask reportlab python-docx`.
 - Rutas con espacios: usa comillas en el comando.
+- `ensurepip` falla al crear el venv: primero ejecuta `python3 -m ensurepip --upgrade` y luego vuelve a correr `python3 -m venv .venv`. Si persiste, reinstala Python desde python.org.
+- `pip` instala pero `python` no encuentra paquetes: asegúrate de haber activado el venv y de que `python` apunte a `.venv` (verificación arriba). Si usas conda, ejecuta `conda deactivate` antes de activar el venv.

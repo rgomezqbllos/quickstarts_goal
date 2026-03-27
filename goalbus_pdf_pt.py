@@ -65,7 +65,14 @@ OUTPUT_FORMATS = ("pdf", "docx")
 IMAGE_SIZE_OPTIONS = ("auto", "full", "compact")
 DEFAULT_IMAGE_SIZE = "auto"
 DEFAULT_COMPACT_WIDTH_RATIO = 0.68
+DEFAULT_COMPACT_HEIGHT_FRAC = 0.36
+DEFAULT_COMPACT_HEIGHT_FRAC_VERTICAL = 0.30
+DEFAULT_COMPACT_HEIGHT_FRAC_PANORAMIC = 0.42
 MAX_IMAGE_SPLIT_PARTS = 6
+IMAGE_FRAME_COLOR = HexColor("#2A3340")
+IMAGE_FRAME_LINE_WIDTH = 0.7
+IMAGE_SHADOW_OFFSET = 0.028 * inch
+IMAGE_SHADOW_ALPHA = 0.10
 
 # Valores hex para salida DOCX (python-docx usa RGB sin '#').
 DOCX_BG_PAGE = "0D1520"
@@ -80,6 +87,11 @@ DOCX_TEXT_GRAY = "94A3B8"
 DOCX_TEXT_DIM = "64748B"
 DOCX_WARN = "FBBF24"
 DOCX_SUCCESS = "34D399"
+DOCX_IMAGE_FRAME = "2A3340"
+DOCX_IMAGE_FRAME_WIDTH = "7620"
+DOCX_IMAGE_SHADOW_ALPHA = "9000"
+DOCX_IMAGE_SHADOW_BLUR = "63500"
+DOCX_IMAGE_SHADOW_DIST = "38100"
 
 # ── Fuentes (detección automática: macOS / Linux / Windows) ─────────────────
 def _setup_fonts():
@@ -423,11 +435,14 @@ class ImageRefBlock(Flowable):
         if self._image_reader is None:
             self._image_reader = ImageReader(self.image_path)
         img_w, img_h = self._image_reader.getSize()
-        max_w = max(1.0, avail_w * (DEFAULT_COMPACT_WIDTH_RATIO if self.size_mode == "compact" else 1.0))
         max_h = max(1.0, self.max_height)
-        scale = min(1.0, max_w / float(img_w))
-        self._draw_w = max(1.0, img_w * scale)
-        self._draw_h_total = max(1.0, img_h * scale)
+        self._draw_w, self._draw_h_total = _compute_image_size(
+            img_w,
+            img_h,
+            max(1.0, avail_w),
+            max_h,
+            self.size_mode,
+        )
         self._draw_h_part = max(1.0, self._draw_h_total * (self.crop_end - self.crop_start))
         if self._draw_h_part > max_h:
             # Cota de seguridad para no romper paginación si un split manual aún resulta alto.
@@ -445,12 +460,38 @@ class ImageRefBlock(Flowable):
     def split(self, aw, ah):
         return []
 
+    def _draw_shadow(self, c, x, y, w, h):
+        if not hasattr(c, "setFillAlpha"):
+            return
+        c.saveState()
+        c.setFillAlpha(IMAGE_SHADOW_ALPHA)
+        c.setFillColor(HexColor("#000000"))
+        c.roundRect(
+            x + IMAGE_SHADOW_OFFSET,
+            y - IMAGE_SHADOW_OFFSET,
+            w,
+            h,
+            2,
+            fill=1,
+            stroke=0,
+        )
+        c.restoreState()
+
+    def _draw_border(self, c, x, y, w, h):
+        c.saveState()
+        c.setStrokeColor(IMAGE_FRAME_COLOR)
+        c.setLineWidth(IMAGE_FRAME_LINE_WIDTH)
+        c.roundRect(x, y, w, h, 2, fill=0, stroke=1)
+        c.restoreState()
+
     def draw(self):
         x = max(0.0, (self.width - self._draw_w) / 2.0)
         y = self._vpad
         c = self.canv
+        self._draw_shadow(c, x, y, self._draw_w, self._draw_h_part)
         if self.crop_start <= 0.0 and self.crop_end >= 1.0:
             c.drawImage(self.image_path, x, y, width=self._draw_w, height=self._draw_h_total, mask="auto")
+            self._draw_border(c, x, y, self._draw_w, self._draw_h_part)
             return
         c.saveState()
         path = c.beginPath()
@@ -468,6 +509,7 @@ class ImageRefBlock(Flowable):
             mask="auto",
         )
         c.restoreState()
+        self._draw_border(c, x, y, self._draw_w, self._draw_h_part)
 
 SP = lambda n=1: Spacer(1, n*0.13*inch)
 
@@ -605,21 +647,51 @@ def _resolve_image_mode(spec, img_w, img_h):
         return chosen
     return _auto_image_size_mode(img_w, img_h)
 
-def _build_image_plan(image_path, spec, avail_w, max_h):
-    img_w, img_h = ImageReader(image_path).getSize()
-    mode = _resolve_image_mode(spec, img_w, img_h)
-    target_w = avail_w if mode == "full" else (avail_w * DEFAULT_COMPACT_WIDTH_RATIO)
+def _compact_height_cap(max_h, img_w, img_h):
+    ratio = img_w / float(max(1, img_h))
+    if ratio <= 0.95:
+        frac = DEFAULT_COMPACT_HEIGHT_FRAC_VERTICAL
+    elif ratio >= 1.6:
+        frac = DEFAULT_COMPACT_HEIGHT_FRAC_PANORAMIC
+    else:
+        frac = DEFAULT_COMPACT_HEIGHT_FRAC
+    return max(1.0, max_h * frac)
+
+def _compute_image_size(img_w, img_h, avail_w, max_h, mode):
+    if mode == "full":
+        target_w = avail_w
+    else:
+        target_w = avail_w * DEFAULT_COMPACT_WIDTH_RATIO
+
     scale = min(1.0, target_w / float(max(1, img_w)))
     draw_w = max(1.0, img_w * scale)
     draw_h = max(1.0, img_h * scale)
 
-    # Si la imagen es muy detallada/panoramica, forzar full para legibilidad en auto/compact.
-    if mode == "compact" and img_w >= 1400 and (img_w / float(max(1, img_h))) >= 1.2 and draw_h < (max_h * 0.45):
+    if mode == "compact":
+        compact_h_cap = _compact_height_cap(max_h, img_w, img_h)
+        if draw_h > compact_h_cap:
+            shrink = compact_h_cap / draw_h
+            draw_w *= shrink
+            draw_h = compact_h_cap
+
+    return draw_w, draw_h
+
+def _build_image_plan(image_path, spec, avail_w, max_h):
+    img_w, img_h = ImageReader(image_path).getSize()
+    requested_mode = (spec or {}).get("size", DEFAULT_IMAGE_SIZE)
+    mode = _resolve_image_mode(spec, img_w, img_h)
+    draw_w, draw_h = _compute_image_size(img_w, img_h, avail_w, max_h, mode)
+
+    # En auto, una panorámica detallada puede subir a full para evitar ilegibilidad.
+    if (
+        mode == "compact"
+        and requested_mode == "auto"
+        and img_w >= 1400
+        and (img_w / float(max(1, img_h))) >= 1.2
+        and draw_h < (max_h * 0.45)
+    ):
         mode = "full"
-        target_w = avail_w
-        scale = min(1.0, target_w / float(max(1, img_w)))
-        draw_w = max(1.0, img_w * scale)
-        draw_h = max(1.0, img_h * scale)
+        draw_w, draw_h = _compute_image_size(img_w, img_h, avail_w, max_h, mode)
 
     split = (spec or {}).get("split")
     if split and split > 1:
@@ -1044,6 +1116,44 @@ def _docx_add_page_field(paragraph, OxmlElement, qn):
     run._r.append(fld_sep)
     run._r.append(fld_end)
 
+def _docx_style_inline_picture(inline_shape, OxmlElement):
+    sp_pr_nodes = inline_shape._inline.xpath(".//pic:spPr")
+    if not sp_pr_nodes:
+        return
+    sp_pr = sp_pr_nodes[0]
+
+    for child in list(sp_pr):
+        if child.tag.endswith("}ln") or child.tag.endswith("}effectLst"):
+            sp_pr.remove(child)
+
+    line = OxmlElement("a:ln")
+    line.set("w", DOCX_IMAGE_FRAME_WIDTH)
+    solid_fill = OxmlElement("a:solidFill")
+    frame_color = OxmlElement("a:srgbClr")
+    frame_color.set("val", DOCX_IMAGE_FRAME)
+    solid_fill.append(frame_color)
+    line.append(solid_fill)
+    dash = OxmlElement("a:prstDash")
+    dash.set("val", "solid")
+    line.append(dash)
+    sp_pr.append(line)
+
+    effect_list = OxmlElement("a:effectLst")
+    outer_shadow = OxmlElement("a:outerShdw")
+    outer_shadow.set("blurRad", DOCX_IMAGE_SHADOW_BLUR)
+    outer_shadow.set("dist", DOCX_IMAGE_SHADOW_DIST)
+    outer_shadow.set("dir", "5400000")
+    outer_shadow.set("algn", "ctr")
+    outer_shadow.set("rotWithShape", "0")
+    shadow_color = OxmlElement("a:srgbClr")
+    shadow_color.set("val", "000000")
+    shadow_alpha = OxmlElement("a:alpha")
+    shadow_alpha.set("val", DOCX_IMAGE_SHADOW_ALPHA)
+    shadow_color.append(shadow_alpha)
+    outer_shadow.append(shadow_color)
+    effect_list.append(outer_shadow)
+    sp_pr.append(effect_list)
+
 def _docx_add_bold_runs(paragraph, text, Pt, RGBColor, color_hex, bold_color_hex=None, size_pt=10, force_bold=False):
     bold_color = bold_color_hex or color_hex
     for segment, is_bold in parse_bold(text):
@@ -1306,12 +1416,23 @@ def build_docx(md_path, out_dir, log_fn=print):
                         if len(plan["ranges"]) > 1:
                             crop_stream = _crop_image_to_stream(image_path, crop_start, crop_end)
                             if crop_stream is not None:
-                                p.add_run().add_picture(crop_stream, width=Inches(plan["draw_w"]), height=Inches(part_h))
+                                pic = p.add_run().add_picture(
+                                    crop_stream,
+                                    width=Inches(plan["draw_w"]),
+                                    height=Inches(part_h),
+                                )
+                                _docx_style_inline_picture(pic, OxmlElement)
                             else:
                                 # Fallback seguro si Pillow no está disponible.
-                                p.add_run().add_picture(image_path, width=Inches(plan["draw_w"]))
+                                pic = p.add_run().add_picture(image_path, width=Inches(plan["draw_w"]))
+                                _docx_style_inline_picture(pic, OxmlElement)
                         else:
-                            p.add_run().add_picture(image_path, width=Inches(plan["draw_w"]), height=Inches(part_h))
+                            pic = p.add_run().add_picture(
+                                image_path,
+                                width=Inches(plan["draw_w"]),
+                                height=Inches(part_h),
+                            )
+                            _docx_style_inline_picture(pic, OxmlElement)
                 else:
                     warn_cell = _docx_add_card(
                         document, Inches, WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT,
