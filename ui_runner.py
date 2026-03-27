@@ -33,7 +33,7 @@ def pick_folder():
     """
     Selector de carpeta multiplataforma sin Tk.
     - macOS: AppleScript.
-    - Windows: PowerShell + Shell.Application.
+    - Windows: PowerShell + OpenFileDialog moderno (Explorador de Windows).
     - Linux: zenity (si está disponible).
     Devuelve '' si se cancela o no está disponible.
     """
@@ -41,24 +41,42 @@ def pick_folder():
         if sys.platform == "darwin":
             res = subprocess.run(
                 ["osascript", "-e", 'POSIX path of (choose folder with prompt "Selecciona carpeta de Markdown")'],
-                capture_output=True, text=True, timeout=20
+                capture_output=True, text=True, timeout=60
             )
             if res.returncode == 0:
                 return res.stdout.strip()
         elif os.name == "nt":
-            ps = [
-                "powershell", "-NoProfile", "-Command",
-                "$f = (New-Object -ComObject Shell.Application).BrowseForFolder(0,'Selecciona carpeta de Markdown',1);"
-                "if ($f) { Write-Output $f.Self.Path }"
-            ]
-            res = subprocess.run(ps, capture_output=True, text=True, timeout=20)
+            cmd = (
+                "Add-Type -AssemblyName System.Windows.Forms;"
+                "[System.Windows.Forms.Application]::EnableVisualStyles();"
+                "$owner = New-Object System.Windows.Forms.Form;"
+                "$owner.TopMost = $true;"
+                "$owner.StartPosition = 'CenterScreen';"
+                "$owner.Size = New-Object System.Drawing.Size(0,0);"
+                "$owner.Show();"
+                "$owner.Focus();"
+                "$d = New-Object System.Windows.Forms.OpenFileDialog;"
+                "$d.ValidateNames = $false;"
+                "$d.CheckFileExists = $false;"
+                "$d.CheckPathExists = $true;"
+                "$d.FileName = 'Selecciona esta carpeta.';"
+                "$d.Title = 'Selecciona carpeta de Markdown';"
+                "if ($d.ShowDialog($owner) -eq 'OK') {"
+                "  [System.IO.Path]::GetDirectoryName($d.FileName)"
+                "};"
+                "$owner.Dispose()"
+            )
+            res = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", cmd],
+                capture_output=True, text=True, timeout=60
+            )
             if res.returncode == 0:
                 return res.stdout.strip()
         else:
             if shutil.which("zenity"):
                 res = subprocess.run(
                     ["zenity", "--file-selection", "--directory", "--title=Selecciona carpeta de Markdown"],
-                    capture_output=True, text=True, timeout=20
+                    capture_output=True, text=True, timeout=60
                 )
                 if res.returncode == 0:
                     return res.stdout.strip()
@@ -75,24 +93,37 @@ def pick_file():
         if sys.platform == "darwin":
             res = subprocess.run(
                 ["osascript", "-e", 'POSIX path of (choose file with prompt "Selecciona logo (png)")'],
-                capture_output=True, text=True, timeout=20
+                capture_output=True, text=True, timeout=60
             )
             if res.returncode == 0:
                 return res.stdout.strip()
         elif os.name == "nt":
-            ps = [
-                "powershell", "-NoProfile", "-Command",
-                "$f = (New-Object -ComObject Shell.Application).BrowseForFolder(0,'Selecciona logo (png)',0x4000);"
-                "if ($f) { Write-Output $f.Self.Path }"
-            ]
-            res = subprocess.run(ps, capture_output=True, text=True, timeout=20)
+            cmd = (
+                "Add-Type -AssemblyName System.Windows.Forms;"
+                "[System.Windows.Forms.Application]::EnableVisualStyles();"
+                "$owner = New-Object System.Windows.Forms.Form;"
+                "$owner.TopMost = $true;"
+                "$owner.StartPosition = 'CenterScreen';"
+                "$owner.Size = New-Object System.Drawing.Size(0,0);"
+                "$owner.Show();"
+                "$owner.Focus();"
+                "$d = New-Object System.Windows.Forms.OpenFileDialog;"
+                "$d.Filter = 'PNG files (*.png)|*.png|All files (*.*)|*.*';"
+                "$d.Title = 'Selecciona logo (png)';"
+                "if ($d.ShowDialog($owner) -eq 'OK') { Write-Output $d.FileName };"
+                "$owner.Dispose()"
+            )
+            res = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", cmd],
+                capture_output=True, text=True, timeout=60
+            )
             if res.returncode == 0:
                 return res.stdout.strip()
         else:
             if shutil.which("zenity"):
                 res = subprocess.run(
                     ["zenity", "--file-selection", "--title=Selecciona logo (png)", "--file-filter=*.png"],
-                    capture_output=True, text=True, timeout=20
+                    capture_output=True, text=True, timeout=60
                 )
                 if res.returncode == 0:
                     return res.stdout.strip()
