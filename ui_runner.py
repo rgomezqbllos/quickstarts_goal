@@ -73,12 +73,12 @@ try {
         Write-Output $path
     }
 } catch {
-    Add-Type -AssemblyName System.Windows.Forms
-    [void][System.Windows.Forms.Application]::EnableVisualStyles()
-    $fb = New-Object System.Windows.Forms.FolderBrowserDialog
-    $fb.Description = "Selecciona carpeta de Markdown"
-    $fb.ShowNewFolderButton = $false
-    if ($fb.ShowDialog() -eq "OK") { Write-Output $fb.SelectedPath }
+    # Fallback: BrowseForFolder con BIF_NEWDIALOGSTYLE+BIF_EDITBOX+BIF_RETURNONLYFSDIRS
+    # - No desaparece al hacer clic fuera
+    # - Devuelve la ruta real del filesystem (incluye rutas OneDrive correctas)
+    $shell = New-Object -ComObject Shell.Application
+    $folder = $shell.BrowseForFolder(0, "Selecciona carpeta de Markdown", 0x51)
+    if ($folder) { Write-Output $folder.Self.Path }
 }
 """
 
