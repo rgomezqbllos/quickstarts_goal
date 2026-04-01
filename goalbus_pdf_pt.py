@@ -38,8 +38,10 @@ try:
     from reportlab.lib.units import inch
     from reportlab.lib.colors import HexColor
     from reportlab.lib.utils import ImageReader
-    from reportlab.platypus import SimpleDocTemplate, Spacer, KeepTogether
+    from reportlab.platypus import SimpleDocTemplate, Spacer, KeepTogether, Table, TableStyle
     from reportlab.platypus.flowables import Flowable
+    from reportlab.platypus.paragraph import Paragraph
+    from reportlab.lib.styles import ParagraphStyle
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
 except ImportError:
@@ -74,7 +76,7 @@ IMAGE_FRAME_LINE_WIDTH = 0.7
 IMAGE_SHADOW_OFFSET = 0.028 * inch
 IMAGE_SHADOW_ALPHA = 0.10
 
-# Valores hex para salida DOCX (python-docx usa RGB sin '#').
+# Valores hex para salida DOCX (Modo Oscuro Restaurado)
 DOCX_BG_PAGE = "0D1520"
 DOCX_BG_CARD = "141F30"
 DOCX_BG_CARD_ALT = "1A2640"
@@ -241,9 +243,9 @@ class SectionHeader(Flowable):
             c.setFont("Inter-Bold", 9); c.setFillColor(TEAL_DIM)
             num_y = (self.height - 9)/2
             c.drawString(0.18*inch, num_y, f"0{self.number}" if self.number < 10 else str(self.number))
-            draw_wrapped_bold(c, self.text, 0.52*inch, text_y, 12.5, max_w, TEXT_WHITE, TEAL)
+            draw_wrapped_bold(c, self.text, 0.52*inch, text_y, 12.5, max_w, TEAL, TEAL)
         else:
-            draw_wrapped_bold(c, self.text, 0.18*inch, text_y, 12.5, max_w, TEXT_WHITE, TEAL)
+            draw_wrapped_bold(c, self.text, 0.18*inch, text_y, 12.5, max_w, TEAL, TEAL)
 
 class BodyText(Flowable):
     def __init__(self, text, size=9.5, color=None):
@@ -556,14 +558,14 @@ def _parse_list(lines, i):
         line = lines[i]
         m = re.match(r'^(\d+)\.\s+(.*)', line)
         if m: items.append({'snum': int(m.group(1)), 'text': m.group(2).strip()}); i += 1; continue
-        m = re.match(r'^-\s+(.*)', line)
+        m = re.match(r'^[-*+]\s+(.*)', line)
         if m: items.append({'snum': '•', 'text': m.group(1).strip()}); i += 1; continue
         m = re.match(r'^\s{2,}(\d+)\.\s+(.*)', line)
         if m:
             if items:
                 items[-1].setdefault('subs', []).append({'snum': int(m.group(1)), 'text': m.group(2).strip()})
             i += 1; continue
-        m = re.match(r'^\s{2,}-\s+(.*)', line)
+        m = re.match(r'^\s{2,}[-*+]\s+(.*)', line)
         if m:
             if items:
                 items[-1].setdefault('subs', []).append({'snum': '•', 'text': m.group(1).strip()})
@@ -571,11 +573,43 @@ def _parse_list(lines, i):
         if not line.strip():
             j = i+1
             while j < len(lines) and not lines[j].strip(): j += 1
-            if j < len(lines) and (re.match(r'^\d+\.', lines[j]) or re.match(r'^-\s', lines[j]) or re.match(r'^\s{2,}', lines[j])):
+            if j < len(lines) and (re.match(r'^\d+\.', lines[j]) or re.match(r'^[-*+]\s', lines[j]) or re.match(r'^\s{2,}', lines[j])):
                 i = j; continue
             else: break
         break
     return items, i
+
+def build_pdf_table(rows, avail_w):
+    if not rows: return Spacer(1, 1)
+    data = []
+    for r in rows:
+        data.append([Paragraph(cell, ParagraphStyle('tc', fontName='Inter', fontSize=8.5, textColor=TEXT_WHITE, leading=10)) for cell in r])
+    
+    col_count = len(rows[0])
+    col_w = avail_w / col_count
+    
+    # Auto-escalar fuente si hay demasiadas columnas
+    fsize = 8.5
+    if col_count > 6: fsize = 7
+    if col_count > 9: fsize = 5.5
+    
+    for r_idx in range(len(data)):
+        for c_idx in range(len(data[r_idx])):
+             data[r_idx][c_idx].style.fontSize = fsize
+             if r_idx == 0: data[r_idx][c_idx].style.fontName = 'Inter-Bold'
+    
+    t = Table(data, colWidths=[col_w]*col_count)
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), BG_CARD_ALT),
+        ('BACKGROUND', (0,1), (-1,-1), BG_CARD),
+        ('GRID', (0,0), (-1,-1), 0.5, BG_SURFACE),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('LEFTPADDING', (0,0), (-1,-1), 6),
+        ('RIGHTPADDING', (0,0), (-1,-1), 6),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+    ]))
+    return t
 
 def extract_ref_name(line):
     m = REF_LINE_RE.match(line or "")
@@ -834,6 +868,22 @@ def _parse_section_body(body):
     while i < len(lines):
         line = lines[i]
         if not line.strip(): flush(); i += 1; continue
+        
+        # Detección de tablas
+        if line.strip().startswith('|'):
+            flush()
+            t_rows = []
+            while i < len(lines) and lines[i].strip().startswith('|'):
+                l = lines[i].strip()
+                if not re.match(r'^\|[\s\-:|]+\|$', l): # Ignorar linea separadora Markdown
+                    # Limpiar los separadores | de los extremos antes de hacer el split
+                    l_clean = l.strip('|').strip()
+                    cells = [c.strip() for c in l_clean.split('|')]
+                    if cells: t_rows.append(cells)
+                i += 1
+            if t_rows: blocks.append(('table', t_rows))
+            continue
+            
         ref_name = extract_ref_name(line)
         if ref_name is not None:
             flush()
@@ -869,7 +919,7 @@ def _parse_section_body(body):
             else:
                 blocks.append(('steps', items))
             continue
-        if re.match(r'^-\s', line):
+        if re.match(r'^[-*+]\s', line):
             ctx = ' '.join(pending); flush()
             items, i = _parse_list(lines, i)
             kind = _classify(items, ctx, True)
@@ -897,6 +947,7 @@ def _blocks_to_flowables(blocks, sec_title, sec_num, is_further, md_dir, p_num, 
     for b in blocks:
         kind = b[0]
         if kind == 'body':       fl += [BodyText(b[1]), SP()]
+        elif kind == 'table':     fl += [build_pdf_table(b[1], W-2*PAD), SP()]
         elif kind == 'closing':  fl += [ClosingNote(b[1]), SP(2)]
         elif kind == 'case_ref': fl += [CaseRefBox(b[1]), SP()]
         elif kind == 'prereq':   fl += [PrereqBox(b[1]), SP()]
@@ -959,6 +1010,7 @@ def build_pdf(md_path, out_dir, log_fn=print):
     parsed_sections = []
     sec_num = 0
     for sec_title, sec_body in sections:
+        sec_title = re.sub(r'^\d+[\.\-]?\s+', '', sec_title)
         is_further = any(k in sec_title.lower() for k in ['leituras adicionais', 'lecturas adicionales'])
         if not is_further:
             sec_num += 1
@@ -1019,6 +1071,7 @@ def _collect_document_structure(md_path, log_fn):
     parsed_sections = []
     sec_num = 0
     for sec_title, sec_body in sections:
+        sec_title = re.sub(r'^\d+[\.\-]?\s+', '', sec_title)
         is_further = any(k in sec_title.lower() for k in ['leituras adicionais', 'lecturas adicionales'])
         if not is_further:
             sec_num += 1
@@ -1039,16 +1092,22 @@ def _collect_document_structure(md_path, log_fn):
     }
 
 def _docx_set_page_background(document, fill_hex, OxmlElement, qn):
+    # Eliminar fondos existentes
     for node in document.element.findall(qn("w:background")):
         document.element.remove(node)
+    
+    # Crear el nodo background con el color oscuro
     bg = OxmlElement("w:background")
-    bg.set(qn("w:fill"), fill_hex)
     bg.set(qn("w:color"), fill_hex)
-    document.element.body.addprevious(bg)
+    document.element.insert(0, bg)
+    
+    # FORZAR VISIBILIDAD: Activar visualización de formas de fondo en los ajustes del documento
     settings = document.settings.element
-    if settings.find(qn("w:displayBackgroundShape")) is None:
-        disp = OxmlElement("w:displayBackgroundShape")
-        settings.insert(0, disp)
+    display_bg = settings.find(qn("w:displayBackgroundShape"))
+    if display_bg is None:
+        display_bg = OxmlElement("w:displayBackgroundShape")
+        settings.append(display_bg)
+    display_bg.set(qn("w:val"), "true")
 
 def _docx_set_cell_background(cell, fill_hex, OxmlElement, qn):
     tc_pr = cell._tc.get_or_add_tcPr()
@@ -1293,7 +1352,11 @@ def build_docx(md_path, out_dir, log_fn=print):
     hp_logo = header.paragraphs[0]
     hp_logo.alignment = WD_ALIGN_PARAGRAPH.LEFT
     if LOGO_PATH and os.path.exists(LOGO_PATH):
-        hp_logo.add_run().add_picture(LOGO_PATH, width=Inches(1.1))
+        # Auto-switch a gris opaco para contraste sobre fondo de hoja blanca
+        logo_cand = os.path.join(md_dir, 'goal-logo-anthracite.png')
+        if not os.path.exists(logo_cand): logo_cand = os.path.join(os.path.dirname(md_dir), 'goal-logo-anthracite.png')
+        final_logo = logo_cand if os.path.exists(logo_cand) else LOGO_PATH
+        hp_logo.add_run().add_picture(final_logo, width=Inches(1.1))
     _docx_style_paragraph(hp_logo, Pt, Inches, after=2, line=1.0)
 
     hp_label = header.add_paragraph()
@@ -1379,7 +1442,7 @@ def build_docx(md_path, out_dir, log_fn=print):
             f"{prefix}{sec_title}",
             Pt,
             RGBColor,
-            DOCX_TEXT_WHITE,
+            DOCX_TEAL,
             bold_color_hex=DOCX_TEAL,
             size_pt=12.5,
             force_bold=True,
@@ -1392,6 +1455,21 @@ def build_docx(md_path, out_dir, log_fn=print):
                 p = document.add_paragraph()
                 _docx_style_paragraph(p, Pt, Inches, after=6, line=1.25)
                 _docx_add_bold_runs(p, block[1], Pt, RGBColor, DOCX_TEXT_GRAY, bold_color_hex=DOCX_TEXT_WHITE, size_pt=9.5)
+                continue
+
+            if kind == "table":
+                rows_data = block[1]
+                if rows_data:
+                    table = document.add_table(rows=len(rows_data), cols=len(rows_data[0]))
+                    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+                    for r_idx, row_cells in enumerate(rows_data):
+                        row = table.rows[r_idx]
+                        for c_idx, cell_text in enumerate(row_cells):
+                            cell = row.cells[c_idx]
+                            _docx_set_cell_background(cell, DOCX_BG_CARD_ALT if r_idx == 0 else DOCX_BG_CARD, OxmlElement, qn)
+                            p = cell.paragraphs[0]
+                            _docx_add_bold_runs(p, cell_text, Pt, RGBColor, DOCX_TEXT_WHITE, bold_color_hex=DOCX_TEXT_WHITE, size_pt=8, force_bold=(r_idx==0))
+                document.add_paragraph()
                 continue
 
             if kind == "image_ref":
@@ -1604,7 +1682,7 @@ def build_docx(md_path, out_dir, log_fn=print):
     return out_path
 
 # === Añadido para UI runner: pipeline sin traducción ===
-def run_pipeline(md_dir='', md_file='', logo_path='', out_dir='', p_from=1, p_to=99, output_format='pdf', log_fn=print):
+def run_pipeline(md_dir='', md_file='', logo_path='', out_dir='', p_from=1, p_to=999, output_format='pdf', log_fn=print):
     global LOGO_PATH
     if md_file:
         md_dir = os.path.dirname(os.path.abspath(md_file))
