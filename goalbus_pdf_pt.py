@@ -420,13 +420,16 @@ class RefWarningBox(Flowable):
         draw_wrapped_bold(c, self.text, 0.18*inch, self.height-0.21*inch, 8.7, aw-0.3*inch, WARN, TEXT_WHITE)
 
 class ImageRefBlock(Flowable):
-    def __init__(self, image_path, max_height, size_mode="full", crop_start=0.0, crop_end=1.0):
+    def __init__(self, image_path, max_height, size_mode="full", crop_start=0.0, crop_end=1.0,
+                 explicit_h_pts=None, explicit_w_pts=None):
         super().__init__()
         self.image_path = image_path
         self.max_height = max_height
         self.size_mode = size_mode if size_mode in IMAGE_SIZE_OPTIONS else "full"
         self.crop_start = max(0.0, min(1.0, crop_start))
         self.crop_end = max(self.crop_start, min(1.0, crop_end))
+        self.explicit_h_pts = explicit_h_pts
+        self.explicit_w_pts = explicit_w_pts
         self._image_reader = None
         self._draw_w = 1.0
         self._draw_h_total = 1.0
@@ -438,13 +441,24 @@ class ImageRefBlock(Flowable):
             self._image_reader = ImageReader(self.image_path)
         img_w, img_h = self._image_reader.getSize()
         max_h = max(1.0, self.max_height)
-        self._draw_w, self._draw_h_total = _compute_image_size(
-            img_w,
-            img_h,
-            max(1.0, avail_w),
-            max_h,
-            self.size_mode,
-        )
+        if self.explicit_h_pts is not None or self.explicit_w_pts is not None:
+            if self.explicit_h_pts and self.explicit_w_pts:
+                scale = min(self.explicit_w_pts / float(max(1, img_w)),
+                            self.explicit_h_pts / float(max(1, img_h)))
+            elif self.explicit_w_pts:
+                scale = self.explicit_w_pts / float(max(1, img_w))
+            else:
+                scale = self.explicit_h_pts / float(max(1, img_h))
+            self._draw_w = max(1.0, img_w * scale)
+            self._draw_h_total = max(1.0, img_h * scale)
+        else:
+            self._draw_w, self._draw_h_total = _compute_image_size(
+                img_w,
+                img_h,
+                max(1.0, avail_w),
+                max_h,
+                self.size_mode,
+            )
         self._draw_h_part = max(1.0, self._draw_h_total * (self.crop_end - self.crop_start))
         if self._draw_h_part > max_h:
             # Cota de seguridad para no romper paginación si un split manual aún resulta alto.
@@ -637,6 +651,10 @@ def parse_ref_directive(ref_text):
             if opt_l in IMAGE_SIZE_OPTIONS:
                 spec["size"] = opt_l
                 continue
+            _m = re.match(r'^compact\((\d+(?:\.\d+)?)?x(\d+(?:\.\d+)?)?\)$', opt_l)
+            if _m and (_m.group(1) or _m.group(2)):
+                spec["size"] = opt_l
+                continue
             if opt_l.isdigit():
                 n = int(opt_l)
                 if 1 <= n <= MAX_IMAGE_SPLIT_PARTS:
@@ -653,7 +671,11 @@ def parse_ref_directive(ref_text):
             if value_l in IMAGE_SIZE_OPTIONS:
                 spec["size"] = value_l
             else:
-                spec["warnings"].append(f"size invalido '{value}', usa: {', '.join(IMAGE_SIZE_OPTIONS)}")
+                _m = re.match(r'^compact\((\d+(?:\.\d+)?)?x(\d+(?:\.\d+)?)?\)$', value_l)
+                if _m and (_m.group(1) or _m.group(2)):
+                    spec["size"] = value_l
+                else:
+                    spec["warnings"].append(f"size invalido '{value}', usa: {', '.join(IMAGE_SIZE_OPTIONS)} o compact(AltoXAncho) en cm")
         elif key == "split":
             try:
                 n = int(value)
@@ -675,10 +697,23 @@ def _auto_image_size_mode(img_w, img_h):
         return "compact"
     return "full" if img_w >= 1400 else "compact"
 
+def _parse_compact_dims(size_str):
+    """Parsea 'compact(HxW)', 'compact(Hx)', 'compact(xW)' en cm -> (h_pts, w_pts).
+    Cualquier lado puede ser None si se omitio. Si el formato no aplica, (None, None)."""
+    m = re.match(r'^compact\((\d+(?:\.\d+)?)?x(\d+(?:\.\d+)?)?\)$', (size_str or "").lower())
+    if m and (m.group(1) or m.group(2)):
+        cm_to_pts = inch / 2.54
+        h_pts = float(m.group(1)) * cm_to_pts if m.group(1) else None
+        w_pts = float(m.group(2)) * cm_to_pts if m.group(2) else None
+        return h_pts, w_pts
+    return None, None
+
 def _resolve_image_mode(spec, img_w, img_h):
     chosen = (spec or {}).get("size", DEFAULT_IMAGE_SIZE)
     if chosen in ("full", "compact"):
         return chosen
+    if chosen and chosen.startswith("compact("):
+        return "compact"
     return _auto_image_size_mode(img_w, img_h)
 
 def _compact_height_cap(max_h, img_w, img_h):
@@ -710,9 +745,47 @@ def _compute_image_size(img_w, img_h, avail_w, max_h, mode):
 
     return draw_w, draw_h
 
-def _build_image_plan(image_path, spec, avail_w, max_h):
+def _build_image_plan(image_path, spec, avail_w, max_h, pts_per_unit=1.0):
     img_w, img_h = ImageReader(image_path).getSize()
     requested_mode = (spec or {}).get("size", DEFAULT_IMAGE_SIZE)
+
+    # Dimensiones explícitas: compact(HxW), compact(Hx), compact(xW) en cm
+    explicit_h_pts, explicit_w_pts = _parse_compact_dims(requested_mode)
+    if explicit_h_pts is not None or explicit_w_pts is not None:
+        # scale en pts/px; draw_w/draw_h se convierten a unidades del caller (pts para PDF, inches para DOCX)
+        if explicit_h_pts and explicit_w_pts:
+            scale = min(explicit_w_pts / float(max(1, img_w)), explicit_h_pts / float(max(1, img_h)))
+        elif explicit_w_pts:
+            scale = explicit_w_pts / float(max(1, img_w))
+        else:
+            scale = explicit_h_pts / float(max(1, img_h))
+        draw_w = max(1.0 / pts_per_unit, img_w * scale / pts_per_unit)
+        draw_h = max(1.0 / pts_per_unit, img_h * scale / pts_per_unit)
+        mode = "compact"
+        split = (spec or {}).get("split")
+        if split and split > 1:
+            parts = split
+        else:
+            # draw_h y max_h están en las mismas unidades del caller (pts para PDF, inches para DOCX)
+            parts = int(math.ceil(draw_h / float(max(1.0 / pts_per_unit, max_h)))) if draw_h > max_h else 1
+        parts = max(1, min(MAX_IMAGE_SPLIT_PARTS, parts))
+        if parts == 1:
+            ranges = [(0.0, 1.0)]
+        else:
+            step = 1.0 / parts
+            ranges = [(i * step, (i + 1) * step) for i in range(parts)]
+        return {
+            "mode": mode,
+            "draw_w": draw_w,
+            "draw_h": draw_h,
+            "parts": parts,
+            "ranges": ranges,
+            "src_w": img_w,
+            "src_h": img_h,
+            "explicit_h_pts": explicit_h_pts,
+            "explicit_w_pts": explicit_w_pts,
+        }
+
     mode = _resolve_image_mode(spec, img_w, img_h)
     draw_w, draw_h = _compute_image_size(img_w, img_h, avail_w, max_h, mode)
 
@@ -969,6 +1042,8 @@ def _blocks_to_flowables(blocks, sec_title, sec_num, is_further, md_dir, p_num, 
                             size_mode=plan["mode"],
                             crop_start=crop_start,
                             crop_end=crop_end,
+                            explicit_h_pts=plan.get("explicit_h_pts"),
+                            explicit_w_pts=plan.get("explicit_w_pts"),
                         ),
                         SP(0.5 if idx < len(plan["ranges"]) - 1 else 1),
                     ])]
@@ -1477,7 +1552,7 @@ def build_docx(md_path, out_dir, log_fn=print):
                 ref_name = ref_spec.get("name", "")
                 image_path = ref_cache.get((p_num, ref_name))
                 if image_path:
-                    plan = _build_image_plan(image_path, ref_spec, content_w_in, image_max_h_in)
+                    plan = _build_image_plan(image_path, ref_spec, content_w_in, image_max_h_in, pts_per_unit=72.0)
                     if plan["parts"] > 1 and PILImage is None:
                         log_fn(
                             f"    [ref] AVISO P{p_num}: Pillow no disponible, se omite split para '{ref_name}' en DOCX"

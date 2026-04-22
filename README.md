@@ -107,10 +107,12 @@ ref: <nombre_imagen> [| <opcion1>] [| <opcion2>]
 
 Opciones soportadas (forma recomendada):
 - `size=auto|full|compact`
+- `size=compact(AltoXAncho)` — dimensiones en cm (ej. `size=compact(2x5)`); admite un lado libre: `compact(2x)` o `compact(x5)`
 - `split=N` con `N` entre `1` y `6`
 
 Atajos tambien validos (equivalentes):
 - `| auto`, `| full`, `| compact` (equivalente a `size=...`)
+- `| compact(2x5)`, `| compact(2x)`, `| compact(x5)` (equivalente a `size=compact(...)`)
 - `| 2`, `| 3` ... (equivalente a `split=...`)
 
 ### Ejemplos listos para copiar
@@ -121,6 +123,10 @@ ref: login | size=compact
 ref: captura_larga | split=2
 ref: imagen_auto | size=auto | split=3
 ref: Captura de pantalla 2026-03-26 a las 17.50.02 | compact
+ref: diagrama | size=compact(2x5)
+ref: icono | compact(3x3)
+ref: captura_ancha | size=compact(x8)
+ref: captura_alta | size=compact(10x)
 ```
 
 ### Donde busca las imagenes
@@ -146,6 +152,16 @@ La carpeta base es la carpeta de Markdown seleccionada por el usuario en la UI (
 - Resultado esperado: menos imagenes altas en `compact`, conservando proporcion (sin deformar).
 - Si escribes `size=compact` de forma explicita, se respeta ese modo (no se promociona a `full`).
 
+`size=compact(AltoXAncho)` / `size=compact(Altox)` / `size=compact(xAncho)`:
+- Fija dimensiones en cm; cualquier lado puede omitirse y el motor lo calcula por proporcion:
+  - `compact(2x5)` — maximo 2 cm alto y 5 cm ancho; la imagen se ajusta para caber en ese rectangulo.
+  - `compact(x8)` — solo ancho fijo (8 cm); el alto se calcula automaticamente segun proporcion.
+  - `compact(10x)` — solo alto fijo (10 cm); el ancho se calcula automaticamente segun proporcion.
+- La imagen nunca se deforma; siempre se conserva la proporcion original.
+- Acepta decimales: `compact(1.5x4.5)`, `compact(x3.5)`.
+- No se aplica ninguna logica automatica adicional; el lado indicado se respeta tal cual.
+- Equivalente en atajo: `| compact(2x5)`, `| compact(x8)`, `| compact(10x)` (sin `size=`).
+
 ### Como funciona `split`
 
 - `split` divide la imagen verticalmente en bloques consecutivos (de arriba hacia abajo).
@@ -167,6 +183,7 @@ Comportamiento de render:
 - Usa `size=auto` como default.
 - Usa `size=full` para pantallas completas con texto pequeño.
 - Usa `size=compact` para capturas de dialogos o zonas puntuales.
+- Usa `size=compact(2x5)` cuando necesitas controlar exactamente cuanto espacio ocupa la imagen (alto x ancho en cm). Con un solo lado: `compact(x8)` fija ancho, `compact(10x)` fija alto.
 - Usa `split=2` o `split=3` para capturas muy altas donde necesitas leer detalle sin reducir demasiado.
 
 ### Errores comunes (y como evitarlos)
