@@ -1757,7 +1757,7 @@ def build_docx(md_path, out_dir, log_fn=print):
     return out_path
 
 # === Añadido para UI runner: pipeline sin traducción ===
-def run_pipeline(md_dir='', md_file='', logo_path='', out_dir='', p_from=1, p_to=999, output_format='pdf', log_fn=print):
+def run_pipeline(md_dir='', md_file='', logo_path='', out_dir='', p_from=1, p_to=999, output_format='pdf', px_filter='', log_fn=print):
     global LOGO_PATH
     if md_file:
         md_dir = os.path.dirname(os.path.abspath(md_file))
@@ -1770,12 +1770,21 @@ def run_pipeline(md_dir='', md_file='', logo_path='', out_dir='', p_from=1, p_to
         md_dir = (md_dir or '').rstrip('/')
         out_dir = out_dir or md_dir
         md_files = []
+        px_list = []
+        if px_filter:
+            matches = re.findall(r'[pP](\d+)', px_filter)
+            px_list = [int(match) for match in matches if match]
+
         for fname in sorted(os.listdir(md_dir)):
             m = re.match(r'^P(\d+)_.*\.md$', fname, re.IGNORECASE)
             if m:
                 n = int(m.group(1))
-                if p_from <= n <= p_to:
-                    md_files.append((n, os.path.join(md_dir, fname)))
+                if px_list:
+                    if n in px_list:
+                        md_files.append((n, os.path.join(md_dir, fname)))
+                else:
+                    if p_from <= n <= p_to:
+                        md_files.append((n, os.path.join(md_dir, fname)))
 
     if not md_dir or not os.path.isdir(md_dir):
         raise FileNotFoundError(f"Carpeta inválida: {md_dir}")
@@ -1831,11 +1840,12 @@ def main():
     parser.add_argument('--to', dest='p_to', type=int, default=99)
     parser.add_argument('--format', dest='output_format', default='pdf', choices=OUTPUT_FORMATS,
                         help='Formato de salida: pdf o docx')
+    parser.add_argument('--px-filter', dest='px_filter', default='', help='Filtro de P* a generar (e.g. P1, P5, P6)')
     args = parser.parse_args()
 
     summary = run_pipeline(md_dir=args.md_dir, md_file=args.md, logo_path=args.logo,
                            out_dir=args.out, p_from=args.p_from, p_to=args.p_to,
-                           output_format=args.output_format, log_fn=print)
+                           output_format=args.output_format, px_filter=args.px_filter, log_fn=print)
     print(f"Resumen: {summary['ok']}/{summary['total']} ok. Formato: {summary['format'].upper()}. Salida: {summary['out_dir']}")
 
 

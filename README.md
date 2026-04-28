@@ -53,7 +53,8 @@ La UI permite:
 - Elegir logo (opcional)
 - Crear carpeta de salida (si no existe)
 - Elegir formato de salida (`PDF` o `DOCX`) junto al botón Ejecutar
-- Ejecutar generacion y ver logs
+- Filtrar por manuales específicos (ej: P1, P5, P6)
+- Ejecutar generación y ver logs
 
 Seletores multiplataforma:
 - macOS: AppleScript
@@ -76,6 +77,7 @@ Opciones:
 - `--out` carpeta de salida
 - `--from` y `--to` para rango de Pxx
 - `--format` formato de salida (`pdf` o `docx`)
+- `--px-filter` para filtrar por manuales específicos (ej: `P1, P5, P6`)
 
 ## Salida
 Cada archivo se guarda con el mismo nombre del Markdown, cambiando la extension segun formato:

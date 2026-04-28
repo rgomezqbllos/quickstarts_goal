@@ -37,6 +37,9 @@
     <input id="out" type="text" placeholder="Por defecto: <carpeta>/result" />
     <button class="btn secondary" onclick="ensureOut()">Crear carpeta result</button>
 
+    <label>Filtrar por manuales (ej: P1, P5, P6 - opcional)</label>
+    <input id="px_filter" type="text" placeholder="Si está vacío, genera todo lo que encuentre" />
+
     <div class="actions">
       <button class="btn primary" onclick="runJob()">Ejecutar</button>
       <div class="format-wrap">
@@ -107,11 +110,12 @@
       const logo = document.getElementById('logo').value.trim();
       const out  = document.getElementById('out').value.trim();
       const output_format = document.getElementById('output_format').value;
+      const px_filter = document.getElementById('px_filter').value.trim();
       if (!md_dir) { alert('Indica la carpeta de Markdown'); return; }
       document.getElementById('log').textContent = '';
       document.getElementById('status').textContent = 'Ejecutando...';
       try {
-        const res = await fetch(`${base}/run`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({md_dir, logo, out, output_format})});
+        const res = await fetch(`${base}/run`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({md_dir, logo, out, output_format, px_filter})});
         const data = await res.json();
         if (!res.ok) {
           document.getElementById('status').textContent = 'Error';
