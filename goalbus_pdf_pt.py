@@ -211,8 +211,8 @@ def make_bg(label, footer):
 
 # ── Flowables ────────────────────────────────────────────────────────────────
 class HeroBlock(Flowable):
-    def __init__(self, number, title, intro):
-        super().__init__(); self.number = number; self.title = title; self.intro = intro; self.avail = W-2*PAD
+    def __init__(self, doc_prefix, number, title, intro):
+        super().__init__(); self.doc_prefix = doc_prefix; self.number = number; self.title = title; self.intro = intro; self.avail = W-2*PAD
     def _h(self):
         return 0.32*inch + measure_wrapped_bold(self.title, 18, self.avail-0.8*inch) + 0.12*inch + measure_wrapped_bold(self.intro, 9.5, self.avail-0.1*inch) + 0.28*inch
     def wrap(self, aw, ah): self.width = aw; self.height = self._h(); return aw, self.height
@@ -220,7 +220,7 @@ class HeroBlock(Flowable):
         c = self.canv; aw = self.avail
         c.setFillColor(BG_CARD); c.roundRect(0, 0, aw, self.height, 8, fill=1, stroke=0)
         c.setFillColor(TEAL_DIM); c.rect(0, 0, 4, self.height, fill=1, stroke=0)
-        y = self.height-0.32*inch; c.setFont("Inter-Bold", 11); c.setFillColor(TEAL); c.drawString(0.18*inch, y, f"P{self.number}")
+        y = self.height-0.32*inch; c.setFont("Inter-Bold", 11); c.setFillColor(TEAL); c.drawString(0.18*inch, y, f"{self.doc_prefix}{self.number}")
         y = draw_wrapped_bold(c, self.title, 0.18*inch, y-0.02*inch-18*1.2, 18, aw-0.8*inch, TEXT_WHITE, TEAL) - 0.06*inch
         draw_wrapped_bold(c, self.intro, 0.18*inch, y, 9.5, aw-0.3*inch, TEXT_GRAY, TEXT_WHITE)
 
@@ -846,10 +846,10 @@ def _crop_image_to_stream(image_path, start_frac, end_frac):
         stream.seek(0)
         return stream
 
-def _guide_dir_candidates(md_dir, p_num):
-    dirs = [os.path.join(md_dir, f"P{p_num}")]
-    p_padded = f"P{p_num:02d}"
-    if p_padded != f"P{p_num}":
+def _guide_dir_candidates(md_dir, doc_prefix, p_num):
+    dirs = [os.path.join(md_dir, f"{doc_prefix}{p_num}")]
+    p_padded = f"{doc_prefix}{p_num:02d}"
+    if p_padded != f"{doc_prefix}{p_num}":
         dirs.append(os.path.join(md_dir, p_padded))
     return dirs
 
@@ -878,11 +878,11 @@ def _find_file_case_insensitive(folder, file_name):
                 return path
     return None
 
-def resolve_ref_image(md_dir, p_num, ref_raw):
+def resolve_ref_image(md_dir, doc_prefix, p_num, ref_raw):
     names = _candidate_ref_names(ref_raw)
     if not names:
         return None
-    for folder in _guide_dir_candidates(md_dir, p_num):
+    for folder in _guide_dir_candidates(md_dir, doc_prefix, p_num):
         for name in names:
             candidate = os.path.join(folder, name)
             if os.path.isfile(candidate):
@@ -892,22 +892,22 @@ def resolve_ref_image(md_dir, p_num, ref_raw):
                 return candidate_ci
     return None
 
-def _validate_image_refs(blocks, md_dir, p_num, ref_cache, log_fn):
-    searched_dirs = [os.path.basename(d) for d in _guide_dir_candidates(md_dir, p_num)]
+def _validate_image_refs(blocks, md_dir, doc_prefix, p_num, ref_cache, log_fn):
+    searched_dirs = [os.path.basename(d) for d in _guide_dir_candidates(md_dir, doc_prefix, p_num)]
     for block in blocks:
         if block[0] == 'image_ref_invalid':
-            log_fn(f"    [ref] AVISO P{p_num}: referencia invalida ({block[1] or 'ref:'})")
+            log_fn(f"    [ref] AVISO {doc_prefix}{p_num}: referencia invalida ({block[1] or 'ref:'})")
             continue
         if block[0] != 'image_ref':
             continue
         ref_spec = block[1]
         for warn in ref_spec.get("warnings", []):
-            log_fn(f"    [ref] AVISO P{p_num}: {warn} en 'ref: {ref_spec.get('raw', '')}'")
+            log_fn(f"    [ref] AVISO {doc_prefix}{p_num}: {warn} en 'ref: {ref_spec.get('raw', '')}'")
         ref_name = ref_spec.get("name", "")
-        key = (p_num, ref_name)
+        key = (doc_prefix, p_num, ref_name)
         if key in ref_cache:
             continue
-        image_path = resolve_ref_image(md_dir, p_num, ref_name)
+        image_path = resolve_ref_image(md_dir, doc_prefix, p_num, ref_name)
         ref_cache[key] = image_path
         if image_path:
             rel = os.path.relpath(image_path, md_dir)
@@ -917,7 +917,7 @@ def _validate_image_refs(blocks, md_dir, p_num, ref_cache, log_fn):
             if ref_spec.get("split"):
                 opts.append(f"split={ref_spec.get('split')}")
             opts_txt = f" ({', '.join(opts)})" if opts else ""
-            log_fn(f"    [ref] OK P{p_num}: '{ref_name}' -> {rel}{opts_txt}")
+            log_fn(f"    [ref] OK {doc_prefix}{p_num}: '{ref_name}' -> {rel}{opts_txt}")
         else:
             log_fn(f"    [ref] AVISO P{p_num}: no se encontro '{ref_name}' en {', '.join(searched_dirs)}")
 
@@ -1015,7 +1015,7 @@ def _parse_section_body(body):
     flush()
     return blocks
 
-def _blocks_to_flowables(blocks, sec_title, sec_num, is_further, md_dir, p_num, ref_cache, image_max_h):
+def _blocks_to_flowables(blocks, sec_title, sec_num, is_further, md_dir, doc_prefix, p_num, ref_cache, image_max_h):
     fl = [KeepTogether([SectionHeader(sec_title, sec_num if not is_further else None), SP()])]
     for b in blocks:
         kind = b[0]
@@ -1031,7 +1031,7 @@ def _blocks_to_flowables(blocks, sec_title, sec_num, is_further, md_dir, p_num, 
         elif kind == 'image_ref':
             ref_spec = b[1]
             ref_name = ref_spec.get("name", "")
-            image_path = ref_cache.get((p_num, ref_name))
+            image_path = ref_cache.get((doc_prefix, p_num, ref_name))
             if image_path:
                 plan = _build_image_plan(image_path, ref_spec, W - 2 * PAD, image_max_h)
                 for idx, (crop_start, crop_end) in enumerate(plan["ranges"]):
@@ -1057,8 +1057,9 @@ def _blocks_to_flowables(blocks, sec_title, sec_num, is_further, md_dir, p_num, 
 def build_pdf(md_path, out_dir, log_fn=print):
     basename = os.path.basename(md_path)
     base_no_ext = os.path.splitext(basename)[0]
-    m = re.match(r'^P(\d+)', basename, re.IGNORECASE)
-    p_num = int(m.group(1)) if m else 0
+    m = re.match(r'^([A-Za-z]+)(\d+)', basename, re.IGNORECASE)
+    doc_prefix = m.group(1).upper() if m else 'P'
+    p_num = int(m.group(2)) if m else 0
     md_dir = os.path.dirname(os.path.abspath(md_path))
 
     with open(md_path, 'r', encoding='utf-8') as f:
@@ -1072,14 +1073,14 @@ def build_pdf(md_path, out_dir, log_fn=print):
             mm = re.match(r'^(\w+):\s*(.*)', line)
             if mm: meta[mm.group(1)] = mm.group(2).strip().strip("'\"")
         raw = raw[fm.end():]
-    title = meta.get('title', f'Quick Start P{p_num}')
+    title = meta.get('title', f'Quick Start {doc_prefix}{p_num}')
     intro = meta.get('intro', '')
 
     parts = re.split(r'\n## ', '\n'+raw)
     sections = [(p.split('\n', 1)[0].strip(), p.split('\n', 1)[1] if '\n' in p else '') for p in parts[1:]]
 
-    bg = make_bg(f"goalbus  •  Quick Start P{p_num}", f"goalbus  •  {title[:60]}")
-    story = [HeroBlock(p_num, title, intro), SP(2)]
+    bg = make_bg(f"goalbus  •  Quick Start {doc_prefix}{p_num}", f"goalbus  •  {title[:60]}")
+    story = [HeroBlock(doc_prefix, p_num, title, intro), SP(2)]
     image_max_h = (H - TOP_MARGIN - BOTTOM_MARGIN) * CONTENT_MAX_IMAGE_FRAC
 
     parsed_sections = []
@@ -1094,7 +1095,7 @@ def build_pdf(md_path, out_dir, log_fn=print):
 
     ref_cache = {}
     for _, _, _, blocks in parsed_sections:
-        _validate_image_refs(blocks, md_dir, p_num, ref_cache, log_fn)
+        _validate_image_refs(blocks, md_dir, doc_prefix, p_num, ref_cache, log_fn)
 
     for sec_title, sec_index, is_further, blocks in parsed_sections:
         story.extend(_blocks_to_flowables(
@@ -1103,6 +1104,7 @@ def build_pdf(md_path, out_dir, log_fn=print):
             sec_index,
             is_further,
             md_dir,
+            doc_prefix,
             p_num,
             ref_cache,
             image_max_h,
@@ -1117,8 +1119,9 @@ def build_pdf(md_path, out_dir, log_fn=print):
 
 def _collect_document_structure(md_path, log_fn):
     basename = os.path.basename(md_path)
-    m = re.match(r'^P(\d+)', basename, re.IGNORECASE)
-    p_num = int(m.group(1)) if m else 0
+    m = re.match(r'^([A-Za-z]+)(\d+)', basename, re.IGNORECASE)
+    doc_prefix = m.group(1).upper() if m else 'P'
+    p_num = int(m.group(2)) if m else 0
     md_dir = os.path.dirname(os.path.abspath(md_path))
 
     with open(md_path, 'r', encoding='utf-8') as f:
@@ -1134,7 +1137,7 @@ def _collect_document_structure(md_path, log_fn):
                 meta[mm.group(1)] = mm.group(2).strip().strip("'\"")
         raw = raw[fm.end():]
 
-    title = meta.get('title', f'Quick Start P{p_num}')
+    title = meta.get('title', f'Quick Start {doc_prefix}{p_num}')
     intro = meta.get('intro', '')
 
     parts = re.split(r'\n## ', '\n' + raw)
@@ -1155,10 +1158,11 @@ def _collect_document_structure(md_path, log_fn):
 
     ref_cache = {}
     for _, _, _, blocks in parsed_sections:
-        _validate_image_refs(blocks, md_dir, p_num, ref_cache, log_fn)
+        _validate_image_refs(blocks, md_dir, doc_prefix, p_num, ref_cache, log_fn)
 
     return {
         "p_num": p_num,
+        "doc_prefix": doc_prefix,
         "md_dir": md_dir,
         "title": title,
         "intro": intro,
@@ -1398,6 +1402,7 @@ def build_docx(md_path, out_dir, log_fn=print):
 
     context = _collect_document_structure(md_path, log_fn)
     p_num = context["p_num"]
+    doc_prefix = context.get("doc_prefix", "P")
     md_dir = context["md_dir"]
     title = context["title"]
     intro = context["intro"]
@@ -1437,7 +1442,7 @@ def build_docx(md_path, out_dir, log_fn=print):
     hp_label = header.add_paragraph()
     hp_label.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     _docx_style_paragraph(hp_label, Pt, Inches, after=0, line=1.0)
-    r = hp_label.add_run(f"goalbus  •  Quick Start P{p_num}")
+    r = hp_label.add_run(f"goalbus  •  Quick Start {doc_prefix}{p_num}")
     r.font.name = "Arial"
     r.font.size = Pt(8)
     r.font.color.rgb = RGBColor.from_string(DOCX_TEXT_DIM)
@@ -1482,7 +1487,7 @@ def build_docx(md_path, out_dir, log_fn=print):
     hero_cell.text = ""
     p0 = hero_cell.paragraphs[0]
     _docx_style_paragraph(p0, Pt, Inches, after=4, line=1.0)
-    _docx_add_bold_runs(p0, f"P{p_num}", Pt, RGBColor, DOCX_TEAL, size_pt=11, force_bold=True)
+    _docx_add_bold_runs(p0, f"{doc_prefix}{p_num}", Pt, RGBColor, DOCX_TEAL, size_pt=11, force_bold=True)
 
     p1 = hero_cell.add_paragraph()
     _docx_style_paragraph(p1, Pt, Inches, after=5, line=1.2)
@@ -1550,12 +1555,12 @@ def build_docx(md_path, out_dir, log_fn=print):
             if kind == "image_ref":
                 ref_spec = block[1]
                 ref_name = ref_spec.get("name", "")
-                image_path = ref_cache.get((p_num, ref_name))
+                image_path = ref_cache.get((doc_prefix, p_num, ref_name))
                 if image_path:
                     plan = _build_image_plan(image_path, ref_spec, content_w_in, image_max_h_in, pts_per_unit=72.0)
                     if plan["parts"] > 1 and PILImage is None:
                         log_fn(
-                            f"    [ref] AVISO P{p_num}: Pillow no disponible, se omite split para '{ref_name}' en DOCX"
+                            f"    [ref] AVISO {doc_prefix}{p_num}: Pillow no disponible, se omite split para '{ref_name}' en DOCX"
                         )
                         plan["parts"] = 1
                         plan["ranges"] = [(0.0, 1.0)]
@@ -1763,28 +1768,60 @@ def run_pipeline(md_dir='', md_file='', logo_path='', out_dir='', p_from=1, p_to
         md_dir = os.path.dirname(os.path.abspath(md_file))
         out_dir = out_dir or md_dir
         md_files = []
-        m = re.match(r'^P(\d+)', os.path.basename(md_file), re.IGNORECASE)
+        m = re.match(r'^([A-Za-z]+)(\d+)', os.path.basename(md_file), re.IGNORECASE)
         if m:
-            md_files = [(int(m.group(1)), md_file)]
+            md_files = [((m.group(1).upper(), int(m.group(2))), md_file)]
     else:
         md_dir = (md_dir or '').rstrip('/')
         out_dir = out_dir or md_dir
         md_files = []
-        px_list = []
+        
+        filter_conditions = []
         if px_filter:
-            matches = re.findall(r'[pP](\d+)', px_filter)
-            px_list = [int(match) for match in matches if match]
+            for part in px_filter.split(','):
+                part = part.strip()
+                if not part: continue
+                m_star = re.match(r'^([A-Za-z]+)\*$', part)
+                if m_star:
+                    filter_conditions.append({'type': 'all', 'prefix': m_star.group(1).upper()})
+                    continue
+                if ':' in part:
+                    left, right = part.split(':', 1)
+                    m_left = re.match(r'^([A-Za-z]+)(\d+)$', left.strip())
+                    m_right = re.match(r'^([A-Za-z]+)(\d+)$', right.strip())
+                    if m_left and m_right:
+                        filter_conditions.append({
+                            'type': 'range', 'prefix': m_left.group(1).upper(),
+                            'start': int(m_left.group(2)), 'end': int(m_right.group(2))
+                        })
+                    continue
+                m_exact = re.match(r'^([A-Za-z]+)(\d+)$', part)
+                if m_exact:
+                    filter_conditions.append({
+                        'type': 'exact', 'prefix': m_exact.group(1).upper(), 'num': int(m_exact.group(2))
+                    })
 
         for fname in sorted(os.listdir(md_dir)):
-            m = re.match(r'^P(\d+)_.*\.md$', fname, re.IGNORECASE)
+            m = re.match(r'^([A-Za-z]+)(\d+)_.*\.md$', fname, re.IGNORECASE)
             if m:
-                n = int(m.group(1))
-                if px_list:
-                    if n in px_list:
-                        md_files.append((n, os.path.join(md_dir, fname)))
+                doc_prefix = m.group(1).upper()
+                n = int(m.group(2))
+                matched = False
+                if filter_conditions:
+                    for cond in filter_conditions:
+                        if cond['prefix'] == doc_prefix:
+                            if cond['type'] == 'all':
+                                matched = True; break
+                            elif cond['type'] == 'range' and cond['start'] <= n <= cond['end']:
+                                matched = True; break
+                            elif cond['type'] == 'exact' and cond['num'] == n:
+                                matched = True; break
                 else:
-                    if p_from <= n <= p_to:
-                        md_files.append((n, os.path.join(md_dir, fname)))
+                    if doc_prefix == 'P' and p_from <= n <= p_to:
+                        matched = True
+                        
+                if matched:
+                    md_files.append(((doc_prefix, n), os.path.join(md_dir, fname)))
 
     if not md_dir or not os.path.isdir(md_dir):
         raise FileNotFoundError(f"Carpeta inválida: {md_dir}")
@@ -1805,11 +1842,11 @@ def run_pipeline(md_dir='', md_file='', logo_path='', out_dir='', p_from=1, p_to
         log_fn("AVISO: goal-logo-white.png no encontrado — salida sin logotipo en encabezado.")
 
     if not md_files:
-        raise RuntimeError("No se encontraron archivos Pxx_*.md en la carpeta.")
+        raise RuntimeError("No se encontraron archivos validos en la carpeta.")
 
     log_fn(f"{len(md_files)} archivo(s) encontrados. Generando {output_format.upper()}...")
     ok, fail = 0, []
-    for p_num, md_path in md_files:
+    for (doc_prefix, p_num), md_path in md_files:
         fname = os.path.basename(md_path)
         try:
             if output_format == 'pdf':

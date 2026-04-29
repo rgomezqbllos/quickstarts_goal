@@ -53,7 +53,7 @@ La UI permite:
 - Elegir logo (opcional)
 - Crear carpeta de salida (si no existe)
 - Elegir formato de salida (`PDF` o `DOCX`) junto al botón Ejecutar
-- Filtrar por manuales específicos (ej: P1, P5, P6)
+- Filtrar por manuales específicos usando patrones flexibles (ej: `P*`, `O1:O15`, `P1, P5`)
 - Ejecutar generación y ver logs
 
 Seletores multiplataforma:
@@ -77,7 +77,23 @@ Opciones:
 - `--out` carpeta de salida
 - `--from` y `--to` para rango de Pxx
 - `--format` formato de salida (`pdf` o `docx`)
-- `--px-filter` para filtrar por manuales específicos (ej: `P1, P5, P6`)
+- `--px-filter` para filtrar usando patrones flexibles (ej: `P*`, `O1:O15`, `P1, P5`, `O1, O7:O16, R17:R20, R21`)
+
+## Filtrado Avanzado de Archivos
+Tanto en la UI como por CLI (a través de `--px-filter`), se pueden generar listas dinámicas de documentos basados en su prefijo y número (ej: `P1`, `O15`, `R21`).
+
+### Sintaxis soportada:
+- **Prefijo completo (`*`):** `P*` u `O*` genera todos los documentos que comiencen con esa letra.
+- **Rangos (`:`):** `P1:P15` genera desde el `P1` hasta el `P15` de forma inclusiva.
+- **Selección individual:** `P1`, `O7` genera exactamente ese archivo.
+- **Combinaciones (separadas por `,`):** Se pueden mezclar cualquiera de las opciones anteriores.
+
+### Ejemplos válidos:
+- `O1:O15,P1:P15`
+- `O1,O7:O16,R17:R20,R21`
+- `P*,O*`
+
+*Nota:* Las letras iniciales no están restringidas a `P`; el generador procesará archivos con cualquier prefijo de una o más letras (ej. `O`, `R`, `ABC`) adaptando las referencias cruzadas y encabezados de manera inteligente.
 
 ## Salida
 Cada archivo se guarda con el mismo nombre del Markdown, cambiando la extension segun formato:
