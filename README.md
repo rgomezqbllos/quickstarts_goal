@@ -1,3 +1,5 @@
+# Versión 2.0.0
+
 # Quick Starts goalbus
 
 Proyecto para generar PDFs a partir de Markdown de Quick Starts y operarlos via una UI local. No se realizan traducciones: el texto del PDF se toma exactamente del Markdown.
