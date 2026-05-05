@@ -230,7 +230,7 @@ def ensure_out():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 
-def run_job(job_id, md_dir, logo, out, output_format, px_filter):
+def run_job(job_id, md_dir, logo, out, output_format, px_filter, lang):
     log_q = jobs[job_id]["log"]
     def log_fn(msg):
         log_q.put(msg)
@@ -242,6 +242,7 @@ def run_job(job_id, md_dir, logo, out, output_format, px_filter):
             output_format=output_format,
             px_filter=px_filter,
             log_fn=log_fn,
+            lang=lang,
         )
         jobs[job_id]["summary"] = summary
     except Exception as e:
@@ -257,11 +258,12 @@ def run():
     out  = data.get("out", "")
     output_format = (data.get("output_format", "pdf") or "pdf").strip().lower()
     px_filter = data.get("px_filter", "")
+    lang = data.get("lang", "auto")
     if output_format not in ("pdf", "docx"):
         return jsonify({"error": f"Formato no soportado: {output_format}"}), 400
     job_id = str(len(jobs) + 1)
     jobs[job_id] = {"log": Queue(), "summary": None}
-    t = threading.Thread(target=run_job, args=(job_id, md_dir, logo, out, output_format, px_filter), daemon=True)
+    t = threading.Thread(target=run_job, args=(job_id, md_dir, logo, out, output_format, px_filter, lang), daemon=True)
     t.start()
     return jsonify({"job_id": job_id})
 

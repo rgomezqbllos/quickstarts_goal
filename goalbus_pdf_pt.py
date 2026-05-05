@@ -76,6 +76,43 @@ IMAGE_FRAME_LINE_WIDTH = 0.7
 IMAGE_SHADOW_OFFSET = 0.028 * inch
 IMAGE_SHADOW_ALPHA = 0.10
 
+# ── Traducciones / Localización ──────────────────────────────────────────────
+LANG_CONFIG = {
+    "ES": {"page": "Página"},
+    "EN": {"page": "Page"},
+    "PT": {"page": "Página"},
+    "FR": {"page": "Page"},
+    "DE": {"page": "Seite"},
+    "IT": {"page": "Pagina"},
+}
+DEFAULT_LANG = "PT"
+
+def get_page_label(lang_code):
+    lc = (lang_code or DEFAULT_LANG).upper()
+    if lc not in LANG_CONFIG:
+        lc = DEFAULT_LANG
+    return LANG_CONFIG[lc]["page"]
+
+def detect_lang(md_content):
+    """Detecta idioma basado en palabras clave comunes."""
+    content = md_content.lower()
+    # Puntuaciones simples
+    scores = {
+        "ES": content.count(" el ") + content.count(" con ") + content.count(" para ") + content.count(" antes de "),
+        "PT": content.count(" o ") + content.count(" com ") + content.count(" para ") + content.count(" antes de "), # 'para' y 'antes de' son iguales en ambos
+        "EN": content.count(" the ") + content.count(" with ") + content.count(" for ") + content.count(" before "),
+        "FR": content.count(" le ") + content.count(" avec ") + content.count(" pour ") + content.count(" avant "),
+    }
+    # Desempate específico ES vs PT
+    if scores["ES"] > 0 or scores["PT"] > 0:
+        if content.count(" faça ") > 0 or content.count(" clique ") > 0 or content.count(" selecione ") > 0:
+            scores["PT"] += 10
+        if content.count(" haga ") > 0 or content.count(" pulse ") > 0 or content.count(" seleccione ") > 0:
+            scores["ES"] += 10
+            
+    best_lang = max(scores, key=scores.get)
+    return best_lang if scores[best_lang] > 0 else DEFAULT_LANG
+
 # Valores hex para salida DOCX (Modo Oscuro Restaurado)
 DOCX_BG_PAGE = "0D1520"
 DOCX_BG_CARD = "141F30"
@@ -190,8 +227,9 @@ def draw_wrapped_bold(c, text, x, start_y, size, max_w, cn, cb):
     return y
 
 # ── Header / Footer ──────────────────────────────────────────────────────────
-def make_bg(label, footer):
+def make_bg(label, footer, lang="PT"):
     top_pad = 8  # ~2.8 mm of aire sobre el logo
+    page_txt = get_page_label(lang)
     def _bg(c, doc):
         c.saveState()
         c.setFillColor(BG_PAGE); c.rect(0, 0, W, H, fill=1, stroke=0)
@@ -205,7 +243,7 @@ def make_bg(label, footer):
         c.setFillColor(BG_SURFACE); c.rect(0, 0, W, 0.38*inch, fill=1, stroke=0)
         c.setFont("Inter", 7); c.setFillColor(TEXT_DIM)
         c.drawString(PAD, 0.13*inch, footer)
-        c.drawRightString(W-PAD, 0.13*inch, f"Página {doc.page}")
+        c.drawRightString(W-PAD, 0.13*inch, f"{page_txt} {doc.page}")
         c.restoreState()
     return _bg
 
@@ -1054,7 +1092,7 @@ def _blocks_to_flowables(blocks, sec_title, sec_num, is_further, md_dir, doc_pre
     return fl
 
 # ── Builder principal ────────────────────────────────────────────────────────
-def build_pdf(md_path, out_dir, log_fn=print):
+def build_pdf(md_path, out_dir, log_fn=print, lang="auto"):
     basename = os.path.basename(md_path)
     base_no_ext = os.path.splitext(basename)[0]
     m = re.match(r'^([A-Za-z]+)(\d+)', basename, re.IGNORECASE)
@@ -1079,7 +1117,10 @@ def build_pdf(md_path, out_dir, log_fn=print):
     parts = re.split(r'\n## ', '\n'+raw)
     sections = [(p.split('\n', 1)[0].strip(), p.split('\n', 1)[1] if '\n' in p else '') for p in parts[1:]]
 
-    bg = make_bg(f"goalbus  •  Quick Start {doc_prefix}{p_num}", f"goalbus  •  {title[:60]}")
+    if lang == "auto":
+        lang = detect_lang(raw)
+    
+    bg = make_bg(f"goalbus  •  Quick Start {doc_prefix}{p_num}", f"goalbus  •  {title[:60]}", lang=lang)
     story = [HeroBlock(doc_prefix, p_num, title, intro), SP(2)]
     image_max_h = (H - TOP_MARGIN - BOTTOM_MARGIN) * CONTENT_MAX_IMAGE_FRAC
 
@@ -1389,7 +1430,7 @@ def _docx_add_badge_row(container_cell, marker, text, text_color_hex, bold_color
     _docx_add_bold_runs(text_p, text, Pt, RGBColor, text_color_hex, bold_color_hex=bold_color_hex, size_pt=text_size_pt)
     return text_cell
 
-def build_docx(md_path, out_dir, log_fn=print):
+def build_docx(md_path, out_dir, log_fn=print, lang="auto"):
     try:
         from docx import Document
         from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
@@ -1462,7 +1503,14 @@ def build_docx(md_path, out_dir, log_fn=print):
     fp_right = footer.add_paragraph()
     _docx_style_paragraph(fp_right, Pt, Inches, after=0, line=1.0)
     fp_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    rr = fp_right.add_run("Página ")
+    if lang == "auto":
+        # Necesitamos el raw para detectar
+        with open(md_path, 'r', encoding='utf-8') as f:
+            raw_tmp = f.read()
+        lang = detect_lang(raw_tmp)
+    
+    page_txt = get_page_label(lang)
+    rr = fp_right.add_run(f"{page_txt} ")
     rr.font.name = "Arial"
     rr.font.size = Pt(7.5)
     rr.font.color.rgb = RGBColor.from_string(DOCX_TEXT_DIM)
@@ -1762,7 +1810,7 @@ def build_docx(md_path, out_dir, log_fn=print):
     return out_path
 
 # === Añadido para UI runner: pipeline sin traducción ===
-def run_pipeline(md_dir='', md_file='', logo_path='', out_dir='', p_from=1, p_to=999, output_format='pdf', px_filter='', log_fn=print):
+def run_pipeline(md_dir='', md_file='', logo_path='', out_dir='', p_from=1, p_to=999, output_format='pdf', px_filter='', log_fn=print, lang='auto'):
     global LOGO_PATH
     if md_file:
         md_dir = os.path.dirname(os.path.abspath(md_file))
@@ -1850,9 +1898,9 @@ def run_pipeline(md_dir='', md_file='', logo_path='', out_dir='', p_from=1, p_to
         fname = os.path.basename(md_path)
         try:
             if output_format == 'pdf':
-                out_path = build_pdf(md_path, out_dir, log_fn=log_fn)
+                out_path = build_pdf(md_path, out_dir, log_fn=log_fn, lang=lang)
             else:
-                out_path = build_docx(md_path, out_dir, log_fn=log_fn)
+                out_path = build_docx(md_path, out_dir, log_fn=log_fn, lang=lang)
             log_fn(f"  ✓ {os.path.basename(out_path)}")
             ok += 1
         except Exception as e:
@@ -1878,11 +1926,12 @@ def main():
     parser.add_argument('--format', dest='output_format', default='pdf', choices=OUTPUT_FORMATS,
                         help='Formato de salida: pdf o docx')
     parser.add_argument('--px-filter', dest='px_filter', default='', help='Filtro de P* a generar (e.g. P1, P5, P6)')
+    parser.add_argument('--lang', default='auto', help='Idioma para etiquetas (ES, EN, PT, FR, DE, IT, auto)')
     args = parser.parse_args()
 
     summary = run_pipeline(md_dir=args.md_dir, md_file=args.md, logo_path=args.logo,
                            out_dir=args.out, p_from=args.p_from, p_to=args.p_to,
-                           output_format=args.output_format, px_filter=args.px_filter, log_fn=print)
+                           output_format=args.output_format, px_filter=args.px_filter, log_fn=print, lang=args.lang)
     print(f"Resumen: {summary['ok']}/{summary['total']} ok. Formato: {summary['format'].upper()}. Salida: {summary['out_dir']}")
 
 

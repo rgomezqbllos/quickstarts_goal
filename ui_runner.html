@@ -43,6 +43,18 @@
     <div class="actions">
       <button class="btn primary" onclick="runJob()">Ejecutar</button>
       <div class="format-wrap">
+        <label for="lang">Idioma (Etiquetas)</label>
+        <select id="lang">
+          <option value="auto" selected>Auto-detectar</option>
+          <option value="ES">Español (ES)</option>
+          <option value="EN">English (EN)</option>
+          <option value="PT">Português (PT)</option>
+          <option value="FR">Français (FR)</option>
+          <option value="DE">Deutsch (DE)</option>
+          <option value="IT">Italiano (IT)</option>
+        </select>
+      </div>
+      <div class="format-wrap">
         <label for="output_format">Formato de salida</label>
         <select id="output_format">
           <option value="pdf" selected>PDF (.pdf)</option>
@@ -110,12 +122,13 @@
       const logo = document.getElementById('logo').value.trim();
       const out  = document.getElementById('out').value.trim();
       const output_format = document.getElementById('output_format').value;
+      const lang = document.getElementById('lang').value;
       const px_filter = document.getElementById('px_filter').value.trim();
       if (!md_dir) { alert('Indica la carpeta de Markdown'); return; }
       document.getElementById('log').textContent = '';
       document.getElementById('status').textContent = 'Ejecutando...';
       try {
-        const res = await fetch(`${base}/run`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({md_dir, logo, out, output_format, px_filter})});
+        const res = await fetch(`${base}/run`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({md_dir, logo, out, output_format, px_filter, lang})});
         const data = await res.json();
         if (!res.ok) {
           document.getElementById('status').textContent = 'Error';
