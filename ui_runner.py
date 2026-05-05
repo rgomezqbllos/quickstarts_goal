@@ -259,8 +259,10 @@ def run():
     output_format = (data.get("output_format", "pdf") or "pdf").strip().lower()
     px_filter = data.get("px_filter", "")
     lang = data.get("lang", "auto")
-    if output_format not in ("pdf", "docx"):
+    if output_format not in ("pdf", "docx", "docx+pdf"):
         return jsonify({"error": f"Formato no soportado: {output_format}"}), 400
+    if output_format == "docx":
+        output_format = "docx+pdf"
     job_id = str(len(jobs) + 1)
     jobs[job_id] = {"log": Queue(), "summary": None}
     t = threading.Thread(target=run_job, args=(job_id, md_dir, logo, out, output_format, px_filter, lang), daemon=True)

@@ -1,223 +1,221 @@
-# Versión 2.0.0
+# Quick Starts goalbus — v2.1.0
 
-# Quick Starts goalbus
-
-Proyecto para generar PDFs a partir de Markdown de Quick Starts y operarlos via una UI local. No se realizan traducciones: el texto del PDF se toma exactamente del Markdown.
+Genera PDFs y DOCXs a partir de Markdown de Quick Starts y los opera via una UI local. El texto se toma exactamente del Markdown, sin traducciones.
 
 ## Contenido
-- Generador de PDF: `goalbus_pdf_pt.py`
-- UI local (backend+frontend): `ui_runner.py` + `ui_runner.html`
-- Assets: logos `goal-logo-*.png`, Markdown en `test/`, PDFs en `Español/` y `Portugues/`
-- Documento de plan (capturas desde video): `output/doc/plan_captura_imagenes_quickstarts.docx`
+
+| Archivo | Descripción |
+|---|---|
+| `goalbus_pdf_pt.py` | Motor de generación (PDF reportlab + DOCX + conversión a PDF) |
+| `ui_runner.py` | Backend Flask de la UI local |
+| `ui_runner.html` | Frontend de la UI local |
+| `requirements.txt` | Dependencias Python |
+| `test/` | Markdowns de prueba y archivos de referencia |
+
+---
 
 ## Requisitos
-- Python 3.9+
-- Dependencias Python:
-  - `flask`
-  - `reportlab`
-  - `python-docx` (para salida `.docx`)
 
-## Instalación (recomendado con venv)
+### Python
+- Python **3.9+**
+- Dependencias (ver `requirements.txt`):
+
+| Paquete | Para qué se usa |
+|---|---|
+| `flask` | Servidor de la UI local |
+| `reportlab` | Generación de PDF desde Markdown |
+| `python-docx` | Generación de archivos `.docx` |
+| `Pillow` | Procesamiento de imágenes en PDF y DOCX |
+| `lxml` | Procesamiento XML requerido por python-docx |
+| `docx2pdf` | Conversión DOCX→PDF via Word (fallback si no hay LibreOffice) |
+
+### Sistema (para conversión DOCX→PDF)
+La opción `docx+pdf` convierte el DOCX a PDF después de generarlo. Usa **LibreOffice** en modo headless (sin interfaz, sin permisos, rápido). Si no está instalado, cae a Microsoft Word vía `docx2pdf`.
+
+- **Recomendado:** [LibreOffice](https://www.libreoffice.org) — sin diálogos, sin permisos de automatización macOS
+- **Alternativa:** Microsoft Word instalado en el equipo
+
+---
+
+## Instalación
+
 ### macOS / Linux
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+pip install --upgrade pip
+pip install -r requirements.txt
 ```
 
 ### Windows (PowerShell)
-```bat
+```powershell
 py -3 -m venv .venv
 .\.venv\Scripts\activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+pip install --upgrade pip
+pip install -r requirements.txt
 ```
 
-Si no tienes `requirements.txt`, instala directo:
-```bash
-python -m pip install flask reportlab python-docx
-```
-
-Verificación rápida (debe apuntar a `.venv`):
+Verificación (debe apuntar a `.venv`):
 ```bash
 python -c "import sys; print(sys.executable)"
 ```
 
-## Uso rapido (UI)
-Arranca backend+frontend en `http://127.0.0.1:1234`:
+---
+
+## UI local
+
+Arranca en `http://127.0.0.1:1234`:
 ```bash
 python ui_runner.py
 ```
 
-La UI permite:
-- Elegir carpeta de Markdown
-- Elegir logo (opcional)
-- Crear carpeta de salida (si no existe)
-- Elegir formato de salida (`PDF` o `DOCX`) junto al botón Ejecutar
-- Filtrar por manuales específicos usando patrones flexibles (ej: `P*`, `O1:O15`, `P1, P5`)
-- Ejecutar generación y ver logs
+### Qué permite la UI
+- Seleccionar carpeta de Markdown
+- Seleccionar logo (opcional)
+- Crear carpeta de salida si no existe
+- Elegir formato: **PDF** o **DOCX** (al seleccionar DOCX genera también el PDF automáticamente)
+- Filtrar por documentos específicos con patrones flexibles (`P*`, `O1:O15`, `P1, P5`)
+- Ver log de generación en tiempo real
 
-Seletores multiplataforma:
-- macOS: AppleScript
-- Windows: PowerShell + Shell.Application
-- Linux: `zenity` (si esta disponible). Si no, escribe la ruta manualmente.
+Selectores de carpeta multiplataforma:
+- **macOS:** AppleScript
+- **Windows:** IFileOpenDialog via COM (soporta OneDrive y rutas Unicode)
+- **Linux:** `zenity` si está disponible; si no, escribe la ruta manualmente
 
-## Uso directo (CLI)
-Generar PDFs desde un directorio de Markdown:
+---
+
+## CLI
+
+### Generar desde una carpeta
 ```bash
-python goalbus_pdf_pt.py --md-dir /ruta/a/markdowns
+python goalbus_pdf_pt.py --md-dir /ruta/a/markdowns/
 ```
 
-Generar desde un archivo:
+### Generar desde un archivo
 ```bash
-python goalbus_pdf_pt.py --md /ruta/a/P01_*.md
+python goalbus_pdf_pt.py --md /ruta/a/P01_titulo.md
 ```
 
-Opciones:
-- `--logo` ruta a `goal-logo-white.png`
-- `--out` carpeta de salida
-- `--from` y `--to` para rango de Pxx
-- `--format` formato de salida (`pdf` o `docx`)
-- `--px-filter` para filtrar usando patrones flexibles (ej: `P*`, `O1:O15`, `P1, P5`, `O1, O7:O16, R17:R20, R21`)
+### Opciones
 
-## Filtrado Avanzado de Archivos
-Tanto en la UI como por CLI (a través de `--px-filter`), se pueden generar listas dinámicas de documentos basados en su prefijo y número (ej: `P1`, `O15`, `R21`).
+| Opción | Descripción | Default |
+|---|---|---|
+| `--md-dir` | Carpeta con archivos `Pxx_*.md` | — |
+| `--md` | Archivo Markdown individual | — |
+| `--out` | Carpeta de salida | misma que `--md-dir` |
+| `--logo` | Ruta a `goal-logo-white.png` | búsqueda automática |
+| `--from N` | Procesar desde el número N | 1 |
+| `--to N` | Procesar hasta el número N | 99 |
+| `--format` | Formato de salida: `pdf`, `docx`, `docx+pdf` | `pdf` |
+| `--px-filter` | Filtro de documentos (ver sección Filtrado) | — |
+| `--lang` | Idioma para etiquetas: `ES`, `EN`, `PT`, `FR`, `DE`, `IT`, `auto` | `auto` |
 
-### Sintaxis soportada:
-- **Prefijo completo (`*`):** `P*` u `O*` genera todos los documentos que comiencen con esa letra.
-- **Rangos (`:`):** `P1:P15` genera desde el `P1` hasta el `P15` de forma inclusiva.
-- **Selección individual:** `P1`, `O7` genera exactamente ese archivo.
-- **Combinaciones (separadas por `,`):** Se pueden mezclar cualquiera de las opciones anteriores.
+### Formatos de salida
 
-### Ejemplos válidos:
-- `O1:O15,P1:P15`
-- `O1,O7:O16,R17:R20,R21`
-- `P*,O*`
+| Formato | Qué genera | Requiere |
+|---|---|---|
+| `pdf` | PDF via reportlab (fiel al diseño) | — |
+| `docx` | Solo el archivo Word `.docx` | — |
+| `docx+pdf` | `.docx` + `.pdf` convertido desde el DOCX | LibreOffice o Word |
 
-*Nota:* Las letras iniciales no están restringidas a `P`; el generador procesará archivos con cualquier prefijo de una o más letras (ej. `O`, `R`, `ABC`) adaptando las referencias cruzadas y encabezados de manera inteligente.
+```bash
+# Solo PDF (reportlab)
+python goalbus_pdf_pt.py --md-dir ./docs/ --format pdf
 
-## Salida
-Cada archivo se guarda con el mismo nombre del Markdown, cambiando la extension segun formato:
-- `.pdf` si `--format pdf` (default)
-- `.docx` si `--format docx`
+# Solo DOCX
+python goalbus_pdf_pt.py --md-dir ./docs/ --format docx
 
-## Notas de formato
-- Los encabezados `##` se renderizan con barra lateral y numero de seccion.
-- El texto no se traduce ni se reescribe: se respeta el Markdown original.
-
-## Referencias de imagen (`ref:`)
-Puedes insertar imagenes en una linea independiente del Markdown. Aplica tanto para salida `PDF` como `DOCX`.
-
-```md
-ref: Captura de pantalla 2026-03-26 a las 11.27.55.png
+# DOCX y también PDF (fiel al Word)
+python goalbus_pdf_pt.py --md-dir ./docs/ --format docx+pdf
 ```
 
-Tambien se admite referencia sin extension:
+---
 
-```md
-ref: imagen1
+## Filtrado de archivos
+
+Tanto en la UI como en CLI (`--px-filter`), se puede filtrar qué documentos generar.
+
+### Sintaxis
+
+| Patrón | Descripción | Ejemplo |
+|---|---|---|
+| `P*` | Todos los documentos con prefijo `P` | `P*` |
+| `P1` | Exactamente ese número | `P1` |
+| `P1:P15` | Rango inclusivo | `P1:P15` |
+| Combinaciones | Separadas por `,` | `P1, P5, O1:O10` |
+
+### Ejemplos
+```bash
+--px-filter "P*"
+--px-filter "P1:P15,O1:O15"
+--px-filter "O1,O7:O16,R17:R20,R21"
 ```
 
-### Sintaxis exacta
+> Los prefijos no están limitados a `P`; se soporta cualquier combinación de letras (`O`, `R`, `ABC`, etc.).
 
-```md
-ref: <nombre_imagen> [| <opcion1>] [| <opcion2>]
-```
+---
 
-Opciones soportadas (forma recomendada):
-- `size=auto|full|compact`
-- `size=compact(AltoXAncho)` — dimensiones en cm (ej. `size=compact(2x5)`); admite un lado libre: `compact(2x)` o `compact(x5)`
-- `split=N` con `N` entre `1` y `6`
+## Imágenes (`ref:`)
 
-Atajos tambien validos (equivalentes):
-- `| auto`, `| full`, `| compact` (equivalente a `size=...`)
-- `| compact(2x5)`, `| compact(2x)`, `| compact(x5)` (equivalente a `size=compact(...)`)
-- `| 2`, `| 3` ... (equivalente a `split=...`)
+Inserta imágenes en el Markdown con una línea `ref:`. Funciona tanto en PDF como en DOCX.
 
-### Ejemplos listos para copiar
-
-```md
+```markdown
+ref: nombre_imagen.png
+ref: nombre_imagen
 ref: imagen_browser | size=full
 ref: login | size=compact
 ref: captura_larga | split=2
-ref: imagen_auto | size=auto | split=3
-ref: Captura de pantalla 2026-03-26 a las 17.50.02 | compact
 ref: diagrama | size=compact(2x5)
 ref: icono | compact(3x3)
 ref: captura_ancha | size=compact(x8)
 ref: captura_alta | size=compact(10x)
 ```
 
-### Donde busca las imagenes
+### Opciones de tamaño
 
-La carpeta base es la carpeta de Markdown seleccionada por el usuario en la UI (o `--md-dir` en CLI).
+| Opción | Comportamiento |
+|---|---|
+| `size=auto` | Automático según proporción (default) |
+| `size=full` | Ancho máximo útil |
+| `size=compact` | Ancho reducido, ideal para diálogos o capturas focales |
+| `size=compact(AxW)` | Alto y/o ancho fijos en cm (`compact(2x5)`, `compact(x8)`, `compact(10x)`) |
+| `split=N` | Divide la imagen en N bloques verticales (1–6) |
 
-- Para un archivo `P1_*.md`, se busca la imagen en subcarpetas `P1/` y `P01/` (fallback).
-- Para un archivo `P12_*.md`, se busca en `P12/`.
-- Si la referencia no tiene extension, se intenta en orden: `.png`, `.jpg`, `.jpeg`.
+### Dónde busca las imágenes
 
-### Como decide el tamaño (`size`)
+La carpeta base es la indicada en `--md-dir` o en la UI. Para `P1_titulo.md` busca en subcarpetas `P1/` y `P01/`. Sin extensión, prueba `.png`, `.jpg`, `.jpeg` en orden.
 
-`size=auto` (default) aplica estas reglas:
-- Imagen panoramica/ancha (ejemplo: pantalla completa de navegador) -> tiende a `full`.
-- Imagen focal o casi cuadrada/vertical (ejemplo: login/modal) -> tiende a `compact`.
-- Si en auto el contenido quedara poco legible, el motor puede subir a `full`.
-
-`size=full`:
-- Usa el mayor ancho util posible, priorizando legibilidad.
-
-`size=compact`:
-- Usa ancho reducido y ahora tambien limita altura de forma analitica segun la relacion de aspecto.
-- Resultado esperado: menos imagenes altas en `compact`, conservando proporcion (sin deformar).
-- Si escribes `size=compact` de forma explicita, se respeta ese modo (no se promociona a `full`).
-
-`size=compact(AltoXAncho)` / `size=compact(Altox)` / `size=compact(xAncho)`:
-- Fija dimensiones en cm; cualquier lado puede omitirse y el motor lo calcula por proporcion:
-  - `compact(2x5)` — maximo 2 cm alto y 5 cm ancho; la imagen se ajusta para caber en ese rectangulo.
-  - `compact(x8)` — solo ancho fijo (8 cm); el alto se calcula automaticamente segun proporcion.
-  - `compact(10x)` — solo alto fijo (10 cm); el ancho se calcula automaticamente segun proporcion.
-- La imagen nunca se deforma; siempre se conserva la proporcion original.
-- Acepta decimales: `compact(1.5x4.5)`, `compact(x3.5)`.
-- No se aplica ninguna logica automatica adicional; el lado indicado se respeta tal cual.
-- Equivalente en atajo: `| compact(2x5)`, `| compact(x8)`, `| compact(10x)` (sin `size=`).
-
-### Como funciona `split`
-
-- `split` divide la imagen verticalmente en bloques consecutivos (de arriba hacia abajo).
-- Cada bloque se coloca en orden y no se recorta entre paginas.
-- Si no indicas `split` y la imagen es demasiado alta, el motor puede dividir automaticamente.
-- Si indicas `split`, ese valor manual tiene prioridad sobre el split automatico.
-
-Comportamiento de render:
-- La imagen se inserta centrada, manteniendo proporcion.
-- Se limita ancho/alto para no romper la maquetacion ni invadir header/footer.
-- Se aplica un marco sutil y una sombra negra suave para mejorar separacion visual.
-- No se escala hacia arriba (sin `upscale`) para preservar nitidez percibida.
-- El bloque de imagen no se corta entre paginas.
-- Si usas `split`, cada fragmento queda en bloques consecutivos y no se recorta.
-- Si falta la imagen o la referencia es invalida, se agrega un aviso visible en la salida y se registra warning en logs, sin detener la generacion.
-
-### Guia rapida de decision
-
-- Usa `size=auto` como default.
-- Usa `size=full` para pantallas completas con texto pequeño.
-- Usa `size=compact` para capturas de dialogos o zonas puntuales.
-- Usa `size=compact(2x5)` cuando necesitas controlar exactamente cuanto espacio ocupa la imagen (alto x ancho en cm). Con un solo lado: `compact(x8)` fija ancho, `compact(10x)` fija alto.
-- Usa `split=2` o `split=3` para capturas muy altas donde necesitas leer detalle sin reducir demasiado.
-
-### Errores comunes (y como evitarlos)
-
-- `ref:` debe ir solo en su linea.
-- No uses rutas en `ref:` (`/` o `\\`); solo nombre de archivo.
-- Si hay opciones invalidas, el sistema avisa en log y sigue con fallback seguro.
-
-## Plan de automatizacion de capturas (video + OCR)
-Se genero un plan tecnico para automatizar capturas desde video y agregar imagenes a los Quick Starts sin alterar el texto:
-- `output/doc/plan_captura_imagenes_quickstarts.docx`
+---
 
 ## Problemas comunes
-- `ModuleNotFoundError: No module named 'flask'`: instala dependencias con `pip install flask reportlab python-docx`.
-- Rutas con espacios: usa comillas en el comando.
-- `ensurepip` falla al crear el venv: primero ejecuta `python3 -m ensurepip --upgrade` y luego vuelve a correr `python3 -m venv .venv`. Si persiste, reinstala Python desde python.org.
-- `pip` instala pero `python` no encuentra paquetes: asegúrate de haber activado el venv y de que `python` apunte a `.venv` (verificación arriba). Si usas conda, ejecuta `conda deactivate` antes de activar el venv.
+
+**`ModuleNotFoundError`**
+```bash
+pip install -r requirements.txt
+```
+
+**La UI no abre el selector de carpeta en Linux**
+Instala `zenity`:
+```bash
+sudo apt install zenity   # Debian/Ubuntu
+sudo dnf install zenity   # Fedora
+```
+
+**`docx+pdf` falla o produce un PDF con layout incorrecto**
+- Instala LibreOffice desde [libreoffice.org](https://www.libreoffice.org) — es el método recomendado.
+- Si solo tienes Word (macOS), puede aparecer un diálogo de permisos la primera vez. Acepta en **Ajustes del Sistema › Privacidad y seguridad › Automatización** y permite que Terminal controle Microsoft Word.
+
+**`ensurepip` falla al crear el venv**
+```bash
+python3 -m ensurepip --upgrade
+python3 -m venv .venv
+```
+
+**`pip` instala pero Python no encuentra los paquetes**
+Asegúrate de haber activado el venv (`source .venv/bin/activate`) y de que `python` apunte a `.venv`. Si usas conda, ejecuta `conda deactivate` primero.
+
+**Rutas con espacios**
+Usa comillas:
+```bash
+python goalbus_pdf_pt.py --md-dir "/ruta con espacios/markdowns/"
+```

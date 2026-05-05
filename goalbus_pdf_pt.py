@@ -34,6 +34,67 @@ except Exception:
     PILImage = None
 
 try:
+    from docx2pdf import convert as _docx2pdf_convert
+    _DOCX2PDF_AVAILABLE = True
+except Exception:
+    _DOCX2PDF_AVAILABLE = False
+
+def _find_soffice():
+    """Localiza el ejecutable de LibreOffice soffice en rutas comunes."""
+    import shutil
+    candidates = [
+        "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+        "/usr/local/bin/soffice",
+        "/usr/bin/soffice",
+        shutil.which("soffice") or "",
+    ]
+    for c in candidates:
+        if c and os.path.exists(c):
+            return c
+    return ""
+
+def _convert_docx_to_pdf(docx_path, pdf_path, log_fn=print):
+    """
+    Convierte docx→pdf usando LibreOffice headless (sin diálogos ni permisos).
+    Si no está disponible cae a docx2pdf (requiere Word y permisos macOS).
+    """
+    import subprocess, shutil, time
+
+    soffice = _find_soffice()
+    if soffice:
+        out_dir = os.path.dirname(pdf_path)
+        result = subprocess.run(
+            [soffice, "--headless", "--convert-to", "pdf", "--outdir", out_dir, docx_path],
+            capture_output=True, text=True, timeout=120
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"LibreOffice falló: {result.stderr.strip()}")
+        # LibreOffice nombra el PDF igual que el docx; renombramos si hace falta
+        lo_pdf = os.path.join(out_dir, os.path.splitext(os.path.basename(docx_path))[0] + ".pdf")
+        if lo_pdf != pdf_path and os.path.exists(lo_pdf):
+            shutil.move(lo_pdf, pdf_path)
+        return
+
+    if not _DOCX2PDF_AVAILABLE:
+        raise RuntimeError(
+            "No se encontró LibreOffice ni docx2pdf.\n"
+            "Instala LibreOffice (https://www.libreoffice.org) o ejecuta: pip install docx2pdf"
+        )
+    # Fallback: docx2pdf (Word vía AppleScript — puede pedir permisos en macOS)
+    retries = 3
+    while retries > 0:
+        try:
+            _docx2pdf_convert(docx_path, pdf_path)
+            return
+        except Exception as e:
+            retries -= 1
+            if retries > 0:
+                log_fn(f"    [!] Reintentando con Word... ({retries} intentos restantes): {e}")
+                time.sleep(3)
+            else:
+                raise
+
+try:
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.units import inch
     from reportlab.lib.colors import HexColor
@@ -63,7 +124,7 @@ _LOGO_RATIO = 1868 / 1031
 LOGO_PATH = ""  # se asigna en main()
 ALLOWED_IMAGE_EXTS = (".png", ".jpg", ".jpeg")
 REF_LINE_RE = re.compile(r'^\s*ref:\s*(.*?)\s*$', re.IGNORECASE)
-OUTPUT_FORMATS = ("pdf", "docx")
+OUTPUT_FORMATS = ("pdf", "docx", "docx+pdf")
 IMAGE_SIZE_OPTIONS = ("auto", "full", "compact")
 DEFAULT_IMAGE_SIZE = "auto"
 DEFAULT_COMPACT_WIDTH_RATIO = 0.68
@@ -252,7 +313,12 @@ class HeroBlock(Flowable):
     def __init__(self, doc_prefix, number, title, intro):
         super().__init__(); self.doc_prefix = doc_prefix; self.number = number; self.title = title; self.intro = intro; self.avail = W-2*PAD
     def _h(self):
-        return 0.32*inch + measure_wrapped_bold(self.title, 18, self.avail-0.8*inch) + 0.12*inch + measure_wrapped_bold(self.intro, 9.5, self.avail-0.1*inch) + 0.28*inch
+        # draw() places P-number at height-0.32*inch then title at height-0.64*inch
+        # (offset = 0.02*inch + 18*1.2pt = 0.32*inch), so effective top = 0.64*inch.
+        # Gap title→intro in draw() is 0.06*inch; use same draw width for intro.
+        title_h = measure_wrapped_bold(self.title, 18, self.avail-0.8*inch)
+        intro_h = measure_wrapped_bold(self.intro, 9.5, self.avail-0.3*inch)
+        return 0.64*inch + title_h + 0.06*inch + intro_h + 0.28*inch
     def wrap(self, aw, ah): self.width = aw; self.height = self._h(); return aw, self.height
     def draw(self):
         c = self.canv; aw = self.avail
@@ -1113,14 +1179,15 @@ def build_pdf(md_path, out_dir, log_fn=print, lang="auto"):
         raw = raw[fm.end():]
     title = meta.get('title', f'Quick Start {doc_prefix}{p_num}')
     intro = meta.get('intro', '')
+    short_title = meta.get('shortTitle', '') or title
 
     parts = re.split(r'\n## ', '\n'+raw)
     sections = [(p.split('\n', 1)[0].strip(), p.split('\n', 1)[1] if '\n' in p else '') for p in parts[1:]]
 
     if lang == "auto":
         lang = detect_lang(raw)
-    
-    bg = make_bg(f"goalbus  •  Quick Start {doc_prefix}{p_num}", f"goalbus  •  {title[:60]}", lang=lang)
+
+    bg = make_bg(f"goalbus  •  Quick Start {doc_prefix}{p_num}", f"goalbus  •  {short_title}", lang=lang)
     story = [HeroBlock(doc_prefix, p_num, title, intro), SP(2)]
     image_max_h = (H - TOP_MARGIN - BOTTOM_MARGIN) * CONTENT_MAX_IMAGE_FRAC
 
@@ -1180,6 +1247,7 @@ def _collect_document_structure(md_path, log_fn):
 
     title = meta.get('title', f'Quick Start {doc_prefix}{p_num}')
     intro = meta.get('intro', '')
+    short_title = meta.get('shortTitle', '') or title
 
     parts = re.split(r'\n## ', '\n' + raw)
     sections = [
@@ -1207,6 +1275,7 @@ def _collect_document_structure(md_path, log_fn):
         "md_dir": md_dir,
         "title": title,
         "intro": intro,
+        "short_title": short_title,
         "parsed_sections": parsed_sections,
         "ref_cache": ref_cache,
     }
@@ -1371,6 +1440,36 @@ def _docx_circled_marker(marker):
         return "●"
     return marker_txt
 
+def _docx_fix_table_layout(table, col_widths_in, OxmlElement, qn):
+    """
+    Fuerza anchos fijos de columna en el XML de la tabla para compatibilidad
+    con LibreOffice. python-docx usa type='auto' que LibreOffice ignora;
+    aquí sobreescribimos con type='dxa' y añadimos el tblGrid explícito.
+    col_widths_in: lista de anchos en pulgadas, uno por columna.
+    """
+    total_twips = int(sum(col_widths_in) * 1440)
+    tbl = table._tbl
+
+    # 1. Fijar <w:tblW type="dxa"> con el ancho real
+    tblPr = tbl.find(qn('w:tblPr'))
+    if tblPr is not None:
+        tblW = tblPr.find(qn('w:tblW'))
+        if tblW is not None:
+            tblW.set(qn('w:w'), str(total_twips))
+            tblW.set(qn('w:type'), 'dxa')
+
+    # 2. Insertar/reemplazar <w:tblGrid> con columnas explícitas
+    existing_grid = tbl.find(qn('w:tblGrid'))
+    if existing_grid is not None:
+        tbl.remove(existing_grid)
+    tblGrid = OxmlElement('w:tblGrid')
+    for w_in in col_widths_in:
+        gc = OxmlElement('w:gridCol')
+        gc.set(qn('w:w'), str(int(w_in * 1440)))
+        tblGrid.append(gc)
+    insert_pos = (list(tbl).index(tblPr) + 1) if tblPr is not None else 0
+    tbl.insert(insert_pos, tblGrid)
+
 def _docx_add_card(document, Inches, WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT, OxmlElement, qn,
                    content_w_in, bg_hex, border_hex=None, accent_hex=None):
     cols = 2 if accent_hex else 1
@@ -1382,14 +1481,17 @@ def _docx_add_card(document, Inches, WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNM
     if accent_hex:
         left_cell = table.cell(0, 0)
         main_cell = table.cell(0, 1)
+        main_w_in = max(0.5, content_w_in - accent_w_in)
         left_cell.width = Inches(accent_w_in)
-        main_cell.width = Inches(max(0.5, content_w_in - accent_w_in))
+        main_cell.width = Inches(main_w_in)
+        _docx_fix_table_layout(table, [accent_w_in, main_w_in], OxmlElement, qn)
         _docx_set_cell_background(left_cell, accent_hex, OxmlElement, qn)
         _docx_set_cell_margins(left_cell, OxmlElement, qn, top=35, right=35, bottom=35, left=35)
         left_cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
     else:
         main_cell = table.cell(0, 0)
         main_cell.width = Inches(content_w_in)
+        _docx_fix_table_layout(table, [content_w_in], OxmlElement, qn)
 
     _docx_set_cell_background(main_cell, bg_hex, OxmlElement, qn)
     _docx_set_cell_margins(main_cell, OxmlElement, qn, top=110, right=140, bottom=110, left=140)
@@ -1408,8 +1510,10 @@ def _docx_add_badge_row(container_cell, marker, text, text_color_hex, bold_color
 
     marker_cell = row_table.cell(0, 0)
     text_cell = row_table.cell(0, 1)
+    text_w_col = max(0.5, text_w_in - badge_w_in)
     marker_cell.width = Inches(badge_w_in)
-    text_cell.width = Inches(max(0.5, text_w_in - badge_w_in))
+    text_cell.width = Inches(text_w_col)
+    _docx_fix_table_layout(row_table, [badge_w_in, text_w_col], OxmlElement, qn)
 
     _docx_set_cell_background(marker_cell, item_bg_hex, OxmlElement, qn)
     _docx_set_cell_background(text_cell, item_bg_hex, OxmlElement, qn)
@@ -1447,6 +1551,7 @@ def build_docx(md_path, out_dir, log_fn=print, lang="auto"):
     md_dir = context["md_dir"]
     title = context["title"]
     intro = context["intro"]
+    short_title = context["short_title"]
     parsed_sections = context["parsed_sections"]
     ref_cache = context["ref_cache"]
 
@@ -1495,7 +1600,7 @@ def build_docx(md_path, out_dir, log_fn=print, lang="auto"):
     fp_left = footer.paragraphs[0]
     _docx_style_paragraph(fp_left, Pt, Inches, after=0, line=1.0)
     fp_left.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    rl = fp_left.add_run(f"goalbus  •  {title[:60]}")
+    rl = fp_left.add_run(f"goalbus  •  {short_title}")
     rl.font.name = "Arial"
     rl.font.size = Pt(7.5)
     rl.font.color.rgb = RGBColor.from_string(DOCX_TEXT_DIM)
@@ -1878,6 +1983,11 @@ def run_pipeline(md_dir='', md_file='', logo_path='', out_dir='', p_from=1, p_to
     output_format = (output_format or 'pdf').strip().lower()
     if output_format not in OUTPUT_FORMATS:
         raise RuntimeError(f"Formato inválido: {output_format}. Usa: {', '.join(OUTPUT_FORMATS)}")
+    if output_format == 'docx+pdf' and not _find_soffice() and not _DOCX2PDF_AVAILABLE:
+        raise RuntimeError(
+            "No se encontró LibreOffice ni docx2pdf para convertir a PDF.\n"
+            "Instala LibreOffice (https://www.libreoffice.org) o ejecuta: pip install docx2pdf"
+        )
 
     LOGO_PATH = ''
     for candidate in [logo_path,
@@ -1892,16 +2002,26 @@ def run_pipeline(md_dir='', md_file='', logo_path='', out_dir='', p_from=1, p_to
     if not md_files:
         raise RuntimeError("No se encontraron archivos validos en la carpeta.")
 
-    log_fn(f"{len(md_files)} archivo(s) encontrados. Generando {output_format.upper()}...")
+    fmt_label = output_format.upper()
+    log_fn(f"{len(md_files)} archivo(s) encontrados. Generando {fmt_label}...")
     ok, fail = 0, []
     for (doc_prefix, p_num), md_path in md_files:
         fname = os.path.basename(md_path)
         try:
             if output_format == 'pdf':
                 out_path = build_pdf(md_path, out_dir, log_fn=log_fn, lang=lang)
-            else:
+                log_fn(f"  ✓ {os.path.basename(out_path)}")
+            elif output_format == 'docx':
                 out_path = build_docx(md_path, out_dir, log_fn=log_fn, lang=lang)
-            log_fn(f"  ✓ {os.path.basename(out_path)}")
+                log_fn(f"  ✓ {os.path.basename(out_path)}")
+            else:  # docx+pdf
+                docx_path = build_docx(md_path, out_dir, log_fn=log_fn, lang=lang)
+                log_fn(f"  ✓ {os.path.basename(docx_path)}")
+                pdf_path = os.path.splitext(docx_path)[0] + '.pdf'
+                log_fn(f"    → Convirtiendo a PDF...")
+                _convert_docx_to_pdf(docx_path, pdf_path, log_fn=log_fn)
+                log_fn(f"  ✓ {os.path.basename(pdf_path)}")
+                out_path = pdf_path
             ok += 1
         except Exception as e:
             log_fn(f"  ✗ {fname}: {e}")
@@ -1909,7 +2029,7 @@ def run_pipeline(md_dir='', md_file='', logo_path='', out_dir='', p_from=1, p_to
 
     if fail:
         log_fn(f"Fallaron: {', '.join(fail)}")
-    log_fn(f"Concluido: {ok}/{len(md_files)}. Formato: {output_format.upper()}. Salida: {out_dir}")
+    log_fn(f"Concluido: {ok}/{len(md_files)}. Formato: {fmt_label}. Salida: {out_dir}")
     return {"ok": ok, "total": len(md_files), "out_dir": out_dir, "format": output_format}
 
 
@@ -1924,7 +2044,7 @@ def main():
     parser.add_argument('--from', dest='p_from', type=int, default=1)
     parser.add_argument('--to', dest='p_to', type=int, default=99)
     parser.add_argument('--format', dest='output_format', default='pdf', choices=OUTPUT_FORMATS,
-                        help='Formato de salida: pdf o docx')
+                        help='Formato de salida: pdf, docx, o docx+pdf (genera docx y lo convierte a pdf con Word)')
     parser.add_argument('--px-filter', dest='px_filter', default='', help='Filtro de P* a generar (e.g. P1, P5, P6)')
     parser.add_argument('--lang', default='auto', help='Idioma para etiquetas (ES, EN, PT, FR, DE, IT, auto)')
     args = parser.parse_args()
