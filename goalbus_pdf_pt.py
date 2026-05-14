@@ -351,6 +351,18 @@ class SectionHeader(Flowable):
         else:
             draw_wrapped_bold(c, self.text, 0.18*inch, text_y, 12.5, max_w, TEAL, TEAL)
 
+class SubHeader(Flowable):
+    def __init__(self, text):
+        super().__init__(); self.text = text; self.avail = W-2*PAD
+    def wrap(self, aw, ah):
+        self.width = aw
+        self.height = measure_wrapped_bold(self.text, 10.5, self.avail) + 0.10*inch
+        return aw, self.height
+    def draw(self):
+        text_h = measure_wrapped_bold(self.text, 10.5, self.avail)
+        text_y = self.height - text_h
+        draw_wrapped_bold(self.canv, self.text, 0, text_y, 10.5, self.avail, TEAL, TEAL)
+
 class BodyText(Flowable):
     def __init__(self, text, size=9.5, color=None):
         super().__init__(); self.text = text; self.size = size; self.color = color or TEXT_GRAY; self.avail = W-2*PAD
@@ -1096,6 +1108,11 @@ def _parse_section_body(body):
             else:
                 blocks.append(('steps', items))
             continue
+        if line.lstrip().startswith('### '):
+            flush()
+            blocks.append(('subheader', line.lstrip()[4:].strip()))
+            i += 1
+            continue
         if re.match(r'^[-*+]\s', line):
             ctx = ' '.join(pending); flush()
             items, i = _parse_list(lines, i)
@@ -1124,6 +1141,7 @@ def _blocks_to_flowables(blocks, sec_title, sec_num, is_further, md_dir, doc_pre
     for b in blocks:
         kind = b[0]
         if kind == 'body':       fl += [BodyText(b[1]), SP()]
+        elif kind == 'subheader': fl += [SubHeader(b[1]), SP(0.3)]
         elif kind == 'table':     fl += [build_pdf_table(b[1], W-2*PAD), SP()]
         elif kind == 'closing':  fl += [ClosingNote(b[1]), SP(2)]
         elif kind == 'case_ref': fl += [CaseRefBox(b[1]), SP()]
@@ -1688,6 +1706,13 @@ def build_docx(md_path, out_dir, log_fn=print, lang="auto"):
                 p = document.add_paragraph()
                 _docx_style_paragraph(p, Pt, Inches, after=6, line=1.25)
                 _docx_add_bold_runs(p, block[1], Pt, RGBColor, DOCX_TEXT_GRAY, bold_color_hex=DOCX_TEXT_WHITE, size_pt=9.5)
+                continue
+
+            if kind == "subheader":
+                p = document.add_paragraph()
+                _docx_style_paragraph(p, Pt, Inches, after=4, line=1.2)
+                _docx_add_bold_runs(p, block[1], Pt, RGBColor, DOCX_TEAL,
+                                    bold_color_hex=DOCX_TEAL, size_pt=11, force_bold=True)
                 continue
 
             if kind == "table":
